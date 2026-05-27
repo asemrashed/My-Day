@@ -10,6 +10,17 @@ import {
   LogOut, 
 } from "lucide-react";
 import thryveLogo from "@/app/thryve.png";
+import { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "ThryveUp | Dashboard",
+  description: "Your personal productivity and expense management dashboard.",
+  icons: {
+    icon: thryveLogo.src,
+    shortcut: thryveLogo.src,
+    apple: thryveLogo.src,
+  },
+};
 
 export default async function DashboardLayout({
   children,
