@@ -23,7 +23,7 @@ export default function BalanceWidget({ income, expense }: BalanceWidgetProps) {
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full mb-8">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 w-full mb-8">
       {/* Current Balance */}
       <div className="app-card relative overflow-hidden flex flex-col justify-between p-6">
         <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full blur-2xl pointer-events-none"></div>
