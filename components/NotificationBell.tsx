@@ -92,7 +92,7 @@ export default function NotificationBell() {
 
               // Trigger Browser Notification
               if ("Notification" in window && Notification.permission === "granted") {
-                new Notification("MyDay Daily Summary", {
+                new Notification("ThryveUp Daily Summary", {
                   body: summaryMsg,
                   icon: "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>☀️</text></svg>"
                 });
@@ -136,7 +136,7 @@ export default function NotificationBell() {
 
                 // Browser Notification
                 if ("Notification" in window && Notification.permission === "granted") {
-                  new Notification("Task Reminder - MyDay", {
+                  new Notification("Task Reminder - ThryveUp", {
                     body: alarmMsg,
                     icon: "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⏰</text></svg>"
                   });

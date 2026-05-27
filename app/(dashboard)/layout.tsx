@@ -1,4 +1,5 @@
 import { auth, signOut } from "@/lib/auth";
+import Image from "next/image";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import { redirect } from "next/navigation";
@@ -8,6 +9,7 @@ import QuickAddModal from "@/components/QuickAddModal";
 import { 
   LogOut, 
 } from "lucide-react";
+import thryveLogo from "@/app/thryve.png";
 
 export default async function DashboardLayout({
   children,
@@ -34,10 +36,10 @@ export default async function DashboardLayout({
         <header className="app-header">
           <div className="flex items-center gap-3">
             {/* Mobile Header Logo */}
-            <div className="md:hidden h-8 w-8 rounded-lg flex items-center justify-center font-bold bg-primary text-primary-foreground shadow-lg shadow-primary/25">
-              MD
+            <div className="md:hidden h-8 w-8 rounded-lg flex items-center justify-center overflow-hidden bg-primary/10 shadow-lg shadow-primary/25">
+              <Image src={thryveLogo} alt="ThryveUp logo" className="h-full w-full object-cover" priority />
             </div>
-            <h2 className="text-lg md:text-xl font-bold tracking-tight md:hidden">MyDay</h2>
+            <h2 className="text-lg md:text-xl font-bold tracking-tight md:hidden">ThryveUp</h2>
             <div className="hidden md:block">
               <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Workspace</span>
               <p className="text-sm text-muted-foreground font-medium">Personal productivity space</p>

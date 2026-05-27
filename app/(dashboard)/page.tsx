@@ -53,6 +53,39 @@ export default async function DashboardPage() {
     .filter((t) => t.type === "EXPENSE")
     .reduce((sum, t) => sum + t.amount, 0);
 
+  const loans = await prisma.loan.findMany({
+    where: { userId: user.id },
+    include: { payments: true },
+    orderBy: { date: "desc" },
+  });
+
+  const loanTotals = loans.reduce(
+    (acc, loan) => {
+      const paid = loan.payments.reduce((sum, payment) => sum + payment.amount, 0);
+      const outstanding = Math.max(loan.principal - paid, 0);
+
+      if (loan.direction === "GIVEN") {
+        acc.loanGiven += loan.principal;
+        acc.repaymentsOnGiven += paid;
+        acc.receivable += outstanding;
+      } else {
+        acc.loanTaken += loan.principal;
+        acc.repaymentsOnTaken += paid;
+        acc.payable += outstanding;
+      }
+
+      return acc;
+    },
+    {
+      loanTaken: 0,
+      loanGiven: 0,
+      repaymentsOnTaken: 0,
+      repaymentsOnGiven: 0,
+      receivable: 0,
+      payable: 0,
+    }
+  );
+
   // Fetch today's tasks
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -113,7 +146,16 @@ export default async function DashboardPage() {
       </div>
 
       {/* Balance Snapshots */}
-      <BalanceWidget income={totalIncome} expense={totalExpense} />
+      <BalanceWidget
+        income={totalIncome}
+        expense={totalExpense}
+        loanTaken={loanTotals.loanTaken}
+        loanGiven={loanTotals.loanGiven}
+        repaymentsOnTaken={loanTotals.repaymentsOnTaken}
+        repaymentsOnGiven={loanTotals.repaymentsOnGiven}
+        receivable={loanTotals.receivable}
+        payable={loanTotals.payable}
+      />
 
       {/* Task progress summary and recent feeds */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

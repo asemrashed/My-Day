@@ -2,12 +2,14 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import { registerAction } from "@/app/actions/auth";
+import Image from "next/image";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useEffect } from "react";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
 import { KeyRound, Mail, User, ArrowRight } from "lucide-react";
+import thryveLogo from "@/app/thryve.png";
 
 export const dynamic = "force-dynamic";
 
@@ -56,8 +58,11 @@ export default function RegisterPage() {
         <div className="absolute -bottom-12 -right-12 w-32 h-32 bg-primary/10 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="text-center mb-8 relative">
+          <div className="mx-auto mb-4 h-14 w-14 overflow-hidden rounded-2xl bg-primary/10 shadow-lg shadow-primary/25">
+            <Image src={thryveLogo} alt="ThryveUp logo" className="h-full w-full object-cover" priority />
+          </div>
           <h1 className="app-page-title">
-            Join MyDay
+            Join ThryveUp
           </h1>
           <p className="text-muted-foreground mt-2 text-sm">
             Create an account to manage your day and track expenses

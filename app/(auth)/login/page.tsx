@@ -2,12 +2,14 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import { loginWithCredentials } from "@/app/actions/auth";
+import Image from "next/image";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
 import { KeyRound, Mail, ArrowRight } from "lucide-react";
+import thryveLogo from "@/app/thryve.png";
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -71,8 +73,11 @@ export default function LoginPage() {
         <div className="absolute -bottom-12 -right-12 w-32 h-32 bg-primary/10 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="text-center mb-8 relative">
+          <div className="mx-auto mb-4 h-14 w-14 overflow-hidden rounded-2xl bg-primary/10 shadow-lg shadow-primary/25">
+            <Image src={thryveLogo} alt="ThryveUp logo" className="h-full w-full object-cover" priority />
+          </div>
           <h1 className="app-page-title">
-            Welcome to MyDay
+            Welcome to ThryveUp
           </h1>
           <p className="text-muted-foreground mt-2 text-sm">
             Sign in to access your planner and dashboard
@@ -133,7 +138,7 @@ export default function LoginPage() {
         </button>
 
         <div className="text-center mt-6 text-sm text-muted-foreground">
-          New to MyDay?{" "}
+          New to ThryveUp?{" "}
           <Link
             href="/register"
             className="app-link-primary"

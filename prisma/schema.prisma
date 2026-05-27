@@ -20,6 +20,8 @@ model User {
   tasks         Task[]
   events        Event[]
   transactions  Transaction[]
+  loans         Loan[]
+  loanPayments  LoanPayment[]
   notifications Notification[]
 }
 
@@ -89,6 +91,35 @@ model Transaction {
   date      DateTime
   createdAt DateTime @default(now())
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Loan {
+  id           String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String        @db.ObjectId
+  direction    String        // GIVEN / TAKEN
+  personName   String
+  principal    Float
+  interestRate Float         @default(0)
+  note         String?
+  status       String        @default("OPEN") // OPEN / PAID
+  date         DateTime
+  createdAt    DateTime      @default(now())
+  payments     LoanPayment[]
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model LoanPayment {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  loanId    String   @db.ObjectId
+  userId    String   @db.ObjectId
+  amount    Float
+  note      String?
+  date      DateTime
+  createdAt DateTime @default(now())
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 

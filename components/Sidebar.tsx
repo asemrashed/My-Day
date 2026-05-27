@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import {
   Home,
@@ -9,9 +11,12 @@ import {
   Calendar,
   CreditCard,
   User,
+  HandCoins,
+  LogOut,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import thryveLogo from "@/app/thryve.png";
 
 interface SidebarProps {
   user: { name?: string | null; email?: string | null; image?: string | null };
@@ -40,6 +45,7 @@ export default function Sidebar({ user }: SidebarProps) {
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
     { label: "Schedule", href: "/schedule", icon: Calendar },
     { label: "Expenses", href: "/expenses", icon: CreditCard },
+    { label: "Loans", href: "/loans", icon: HandCoins },
     { label: "Profile", href: "/profile", icon: User },
   ];
 
@@ -51,12 +57,10 @@ export default function Sidebar({ user }: SidebarProps) {
       style={{ background: "rgba(6, 11, 18, 0.94)" }}
     >
       <div className="flex items-center gap-3 mb-6 px-2">
-        <div
-          className="h-9 w-9 rounded-xl flex items-center justify-center font-bold bg-primary text-primary-foreground shadow-lg shadow-primary/25"
-        >
-          MD
+        <div className="h-9 w-9 rounded-xl flex items-center justify-center overflow-hidden bg-primary/10 shadow-lg shadow-primary/25">
+          <Image src={thryveLogo} alt="ThryveUp logo" className="h-full w-full object-cover" priority />
         </div>
-        {!collapsed && <span className="text-xl font-bold tracking-tight text-white">MyDay</span>}
+        {!collapsed && <span className="text-xl font-bold tracking-tight text-white">ThryveUp</span>}
         <button
           aria-label="Toggle sidebar"
           onClick={() => setCollapsed(!collapsed)}
@@ -99,21 +103,32 @@ export default function Sidebar({ user }: SidebarProps) {
         })}
       </nav>
 
-      <div className="mt-auto pt-4 border-t border-slate-800/60 flex items-center gap-3">
-        {user.image ? (
-          <img src={user.image} alt={user.name || "User Avatar"} className="h-10 w-10 rounded-full object-cover" />
-        ) : (
-          <div className="h-10 w-10 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold text-white uppercase">
-            {user.name ? user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() : "US"}
-          </div>
-        )}
+      <div className={`mt-auto pt-4 border-t border-slate-800/60 flex items-center gap-3 ${collapsed ? "flex-col" : ""}`}>
+        <div className={`flex items-center gap-3 min-w-0 ${collapsed ? "justify-center" : "flex-1"}`}>
+          {user.image ? (
+            <img src={user.image} alt={user.name || "User Avatar"} className="h-10 w-10 rounded-full object-cover" />
+          ) : (
+            <div className="h-10 w-10 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold text-white uppercase">
+              {user.name ? user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() : "US"}
+            </div>
+          )}
 
-        {!collapsed && (
-          <div className="flex-1 min-w-0 text-left">
-            <p className="text-sm font-semibold text-slate-100 truncate">{user.name || "Anonymous"}</p>
-            <p className="text-xs text-slate-400 truncate">{user.email}</p>
-          </div>
-        )}
+          {!collapsed && (
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-sm font-semibold text-slate-100 truncate">{user.name || "Anonymous"}</p>
+              <p className="text-xs text-slate-400 truncate">{user.email}</p>
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={() => signOut({ callbackUrl: "/login" })}
+          className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-rose-950/30 hover:text-rose-400"
+          title="Log out"
+          aria-label="Log out"
+        >
+          <LogOut className="h-4 w-4" />
+        </button>
       </div>
     </aside>
   );

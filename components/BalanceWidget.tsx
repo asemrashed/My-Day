@@ -1,12 +1,28 @@
-import { TrendingUp, TrendingDown, Landmark } from "lucide-react";
+import { TrendingUp, TrendingDown, Landmark, HandCoins, Scale } from "lucide-react";
 
 interface BalanceWidgetProps {
   income: number;
   expense: number;
+  loanTaken: number;
+  loanGiven: number;
+  repaymentsOnTaken: number;
+  repaymentsOnGiven: number;
+  receivable: number;
+  payable: number;
 }
 
-export default function BalanceWidget({ income, expense }: BalanceWidgetProps) {
-  const balance = income - expense;
+export default function BalanceWidget({
+  income,
+  expense,
+  loanTaken,
+  loanGiven,
+  repaymentsOnTaken,
+  repaymentsOnGiven,
+  receivable,
+  payable,
+}: BalanceWidgetProps) {
+  const balance = income - expense + loanTaken - loanGiven - repaymentsOnTaken + repaymentsOnGiven;
+  const netWorth = balance + receivable - payable;
   const savingsPercent = income > 0 ? Math.max(0, Math.round((balance / income) * 100)) : 0;
 
   // Format currency helper
@@ -21,7 +37,7 @@ export default function BalanceWidget({ income, expense }: BalanceWidgetProps) {
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full mb-8">
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 w-full mb-8">
       {/* Current Balance */}
       <div className="app-card relative overflow-hidden flex flex-col justify-between">
         <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full blur-2xl"></div>
@@ -41,6 +57,29 @@ export default function BalanceWidget({ income, expense }: BalanceWidgetProps) {
           </h3>
           <p className="text-xs text-muted-foreground mt-2">
             Net cash flow available
+          </p>
+        </div>
+      </div>
+
+      {/* Net Worth */}
+      <div className="app-card relative overflow-hidden flex flex-col justify-between">
+        <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full blur-2xl"></div>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Net Worth
+          </span>
+          <div className="p-2 rounded-xl bg-primary/10 text-primary border border-primary/20">
+            <Scale className="h-5 w-5" />
+          </div>
+        </div>
+        <div>
+          <h3 className={`text-2xl md:text-3xl font-bold tracking-tight ${
+            netWorth >= 0 ? "text-income" : "text-expense"
+          }`}>
+            {formatBDT(netWorth)}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-2">
+            Cash + receivable - payable
           </p>
         </div>
       </div>
@@ -83,6 +122,48 @@ export default function BalanceWidget({ income, expense }: BalanceWidgetProps) {
           </h3>
           <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
             <span className="text-expense font-medium">All-time</span> cash outflows
+          </p>
+        </div>
+      </div>
+
+      {/* Loan Receivable */}
+      <div className="app-card relative overflow-hidden flex flex-col justify-between">
+        <div className="absolute top-0 right-0 w-24 h-24 bg-income/10 rounded-full blur-2xl"></div>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Loan Receivable
+          </span>
+          <div className="p-2 rounded-xl bg-income/10 text-income border border-income/20">
+            <HandCoins className="h-5 w-5" />
+          </div>
+        </div>
+        <div>
+          <h3 className="text-2xl md:text-3xl font-bold tracking-tight text-income">
+            {formatBDT(receivable)}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-2">
+            Outstanding money owed to you
+          </p>
+        </div>
+      </div>
+
+      {/* Loan Payable */}
+      <div className="app-card relative overflow-hidden flex flex-col justify-between">
+        <div className="absolute top-0 right-0 w-24 h-24 bg-expense/10 rounded-full blur-2xl"></div>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Loan Payable
+          </span>
+          <div className="p-2 rounded-xl bg-expense/10 text-expense border border-expense/20">
+            <HandCoins className="h-5 w-5" />
+          </div>
+        </div>
+        <div>
+          <h3 className="text-2xl md:text-3xl font-bold tracking-tight text-expense">
+            {formatBDT(payable)}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-2">
+            Outstanding money you owe
           </p>
         </div>
       </div>

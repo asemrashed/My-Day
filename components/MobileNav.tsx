@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Calendar, CheckSquare, CreditCard, Home, User } from "lucide-react";
+import { Calendar, CheckSquare, CreditCard, HandCoins, Home, User } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: Home },
   { label: "Tasks", href: "/tasks", icon: CheckSquare },
   { label: "Schedule", href: "/schedule", icon: Calendar },
   { label: "Expenses", href: "/expenses", icon: CreditCard },
+  { label: "Loans", href: "/loans", icon: HandCoins },
   { label: "Profile", href: "/profile", icon: User },
 ];
 
@@ -26,7 +27,7 @@ export default function MobileNav() {
             key={item.href}
             href={item.href}
             aria-current={active ? "page" : undefined}
-            className={`relative flex min-w-14 flex-col items-center justify-center gap-0.5 rounded-xl p-2 text-muted-foreground transition-colors active:scale-90 ${
+            className={`relative flex min-w-12 flex-col items-center justify-center gap-0.5 rounded-xl p-2 text-muted-foreground transition-colors active:scale-90 ${
               active ? "text-primary" : "hover:text-primary"
             }`}
           >
