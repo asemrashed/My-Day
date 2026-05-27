@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import BalanceWidget from "@/components/BalanceWidget";
 import TaskCheckbox from "@/components/TaskCheckbox";
+import GoalsWidget from "@/components/GoalsWidget";
+import NotesWidget from "@/components/NotesWidget";
 import { formatBengaliDate, getTraditionalBengaliDate } from "@/lib/utils";
 import { 
   ArrowRight, 
@@ -52,39 +54,6 @@ export default async function DashboardPage() {
   const totalExpense = transactions
     .filter((t) => t.type === "EXPENSE")
     .reduce((sum, t) => sum + t.amount, 0);
-
-  const loans = await prisma.loan.findMany({
-    where: { userId: user.id },
-    include: { payments: true },
-    orderBy: { date: "desc" },
-  });
-
-  const loanTotals = loans.reduce(
-    (acc, loan) => {
-      const paid = loan.payments.reduce((sum, payment) => sum + payment.amount, 0);
-      const outstanding = Math.max(loan.principal - paid, 0);
-
-      if (loan.direction === "GIVEN") {
-        acc.loanGiven += loan.principal;
-        acc.repaymentsOnGiven += paid;
-        acc.receivable += outstanding;
-      } else {
-        acc.loanTaken += loan.principal;
-        acc.repaymentsOnTaken += paid;
-        acc.payable += outstanding;
-      }
-
-      return acc;
-    },
-    {
-      loanTaken: 0,
-      loanGiven: 0,
-      repaymentsOnTaken: 0,
-      repaymentsOnGiven: 0,
-      receivable: 0,
-      payable: 0,
-    }
-  );
 
   // Fetch today's tasks
   const startOfToday = new Date();
@@ -149,13 +118,13 @@ export default async function DashboardPage() {
       <BalanceWidget
         income={totalIncome}
         expense={totalExpense}
-        loanTaken={loanTotals.loanTaken}
-        loanGiven={loanTotals.loanGiven}
-        repaymentsOnTaken={loanTotals.repaymentsOnTaken}
-        repaymentsOnGiven={loanTotals.repaymentsOnGiven}
-        receivable={loanTotals.receivable}
-        payable={loanTotals.payable}
       />
+
+      {/* Goals & Notes overview */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <GoalsWidget />
+        <NotesWidget />
+      </div>
 
       {/* Task progress summary and recent feeds */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

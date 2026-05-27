@@ -9,7 +9,6 @@ const navItems = [
   { label: "Tasks", href: "/tasks", icon: CheckSquare },
   { label: "Schedule", href: "/schedule", icon: Calendar },
   { label: "Expenses", href: "/expenses", icon: CreditCard },
-  { label: "Loans", href: "/loans", icon: HandCoins },
   { label: "Profile", href: "/profile", icon: User },
 ];
 

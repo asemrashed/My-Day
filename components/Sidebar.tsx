@@ -12,6 +12,8 @@ import {
   CreditCard,
   User,
   HandCoins,
+  Target,
+  FileText,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -45,8 +47,9 @@ export default function Sidebar({ user }: SidebarProps) {
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
     { label: "Schedule", href: "/schedule", icon: Calendar },
     { label: "Expenses", href: "/expenses", icon: CreditCard },
-    { label: "Loans", href: "/loans", icon: HandCoins },
     { label: "Profile", href: "/profile", icon: User },
+    { label: "Goals", href: "/goals", icon: Target },
+    { label: "Notes", href: "/notes", icon: FileText },
   ];
 
   return (

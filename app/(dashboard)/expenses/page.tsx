@@ -12,12 +12,24 @@ export default async function ExpensesPage() {
 
   const userId = session.user.id;
 
+  // Fetch transactions
   const transactions = await prisma.transaction.findMany({
     where: { userId },
     orderBy: { date: "desc" },
   });
 
-  // Totals
+  // Fetch loans
+  const loans = await prisma.loan.findMany({
+    where: { userId },
+    include: {
+      payments: {
+        orderBy: { date: "desc" },
+      },
+    },
+    orderBy: { date: "desc" },
+  });
+
+  // Totals for transactions
   const totalIncome = transactions.filter((t) => t.type === "INCOME").reduce((s, t) => s + t.amount, 0);
   const totalExpense = transactions.filter((t) => t.type === "EXPENSE").reduce((s, t) => s + t.amount, 0);
 
@@ -59,14 +71,31 @@ export default async function ExpensesPage() {
     date: t.date.toISOString(),
   }));
 
+  const formattedLoans = loans.map((loan) => ({
+    id: loan.id,
+    direction: loan.direction,
+    personName: loan.personName,
+    principal: loan.principal,
+    interestRate: loan.interestRate,
+    note: loan.note,
+    status: loan.status,
+    date: loan.date.toISOString(),
+    payments: loan.payments.map((payment) => ({
+      id: payment.id,
+      amount: payment.amount,
+      note: payment.note,
+      date: payment.date.toISOString(),
+    })),
+  }));
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="app-page-title">
-          Expense Tracker
+          Financial Control Hub
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Track your BDT income and expenses with full charts and history
+          Track your incomes, expenses, investments, debts, and loans all in one place.
         </p>
       </div>
 
@@ -76,6 +105,7 @@ export default async function ExpensesPage() {
         categoryData={categoryData}
         totalIncome={totalIncome}
         totalExpense={totalExpense}
+        initialLoans={formattedLoans}
       />
     </div>
   );
