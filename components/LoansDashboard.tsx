@@ -251,7 +251,7 @@ export default function LoansDashboard({ initialLoans }: LoansDashboardProps) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {[
           { label: "Loan Receivable", value: totals.receivable, icon: HandCoins, tone: "text-income" },
           { label: "Loan Payable", value: totals.payable, icon: Banknote, tone: "text-expense" },

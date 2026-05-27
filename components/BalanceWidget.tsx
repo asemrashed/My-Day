@@ -37,7 +37,7 @@ export default function BalanceWidget({
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 w-full mb-8">
+    <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-3 gap-6 w-full mb-8">
       {/* Current Balance */}
       <div className="app-card relative overflow-hidden flex flex-col justify-between">
         <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full blur-2xl"></div>
