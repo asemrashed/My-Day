@@ -126,18 +126,6 @@ export default async function DashboardPage() {
         <NotesWidget />
       </div>
 
-      {/* Balance Snapshots */}
-      <BalanceWidget
-        income={totalIncome}
-        expense={totalExpense}
-      />
-
-      {/* Goals & Notes overview */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <GoalsWidget />
-        <NotesWidget />
-      </div>
-
       {/* Task progress summary and recent feeds */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
