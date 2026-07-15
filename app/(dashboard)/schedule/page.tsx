@@ -33,6 +33,16 @@ export default async function SchedulePage() {
     take: 5,
   });
 
+  // Active goals with a target date (shown on the calendar)
+  const goals = await prisma.goal.findMany({
+    where: {
+      userId: session.user.id,
+      isCompleted: false,
+      dueDate: { not: null },
+    },
+    orderBy: { dueDate: "asc" },
+  });
+
   const formattedEvents = events.map((e) => ({
     id: e.id,
     title: e.title,
@@ -49,6 +59,14 @@ export default async function SchedulePage() {
     status: t.status,
   }));
 
+  const formattedGoals = goals.map((g) => ({
+    id: g.id,
+    title: g.title,
+    dueDate: g.dueDate!.toISOString(),
+    progress: g.progress,
+    period: g.period,
+  }));
+
   return (
     <div className="space-y-6">
       <div>
@@ -59,7 +77,7 @@ export default async function SchedulePage() {
           Click on any day to add an event. Click an event to delete it.
         </p>
       </div>
-      <CalendarView initialEvents={formattedEvents} upcomingTasks={formattedTasks} />
+      <CalendarView initialEvents={formattedEvents} upcomingTasks={formattedTasks} goals={formattedGoals} />
     </div>
   );
 }

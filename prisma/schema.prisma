@@ -26,6 +26,7 @@ model User {
   goals             Goal[]
   notes             Note[]
   categories        Category[]
+  links             Link[]
   categoriesSeeded  Boolean  @default(false)
 }
 
@@ -161,6 +162,21 @@ model Goal {
   createdAt   DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Generic cross-feature reference: e.g. a NOTE that references TRANSACTIONs / GOALs / TASKs
+model Link {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @db.ObjectId
+  sourceType String   // NOTE / GOAL / TASK
+  sourceId   String   @db.ObjectId
+  targetType String   // TRANSACTION / GOAL / TASK / NOTE / LOAN
+  targetId   String   @db.ObjectId
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceType, sourceId, targetType, targetId])
 }
 
 model Note {

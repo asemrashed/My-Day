@@ -53,20 +53,19 @@ export default function Sidebar({ user }: SidebarProps) {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-30 bg-slate-900 border-r border-slate-800 p-4 text-slate-300 transition-all duration-200 flex flex-col ${
+      className={`fixed inset-y-0 left-0 z-30 bg-card border-r border-border p-4 text-muted-foreground transition-all duration-200 flex flex-col ${
         collapsed ? "w-20" : "w-64"
       }`}
-      style={{ background: "rgba(6, 11, 18, 0.94)" }}
     >
       <div className="flex items-center gap-3 mb-6 px-2">
         <div className="h-9 w-9 rounded-xl flex items-center justify-center overflow-hidden bg-primary/10 shadow-lg shadow-primary/25">
           <Image src={thryveLogo} alt="ThryveUp logo" className="h-full w-full object-cover" priority />
         </div>
-        {!collapsed && <span className="text-xl font-bold tracking-tight text-white">ThryveUp</span>}
+        {!collapsed && <span className="text-xl font-bold tracking-tight text-foreground">ThryveUp</span>}
         <button
           aria-label="Toggle sidebar"
           onClick={() => setCollapsed(!collapsed)}
-          className="ml-auto p-1 rounded hover:bg-white/5 text-slate-400 hover:text-primary"
+          className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary"
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
@@ -88,7 +87,7 @@ export default function Sidebar({ user }: SidebarProps) {
               } ${
                 active
                   ? "bg-primary/10 text-primary shadow-[0_0_18px_hsl(var(--primary)/0.22)]"
-                  : "hover:bg-slate-800/60 hover:text-slate-100"
+                  : "hover:bg-muted hover:text-foreground"
               }`}
             >
               <span
@@ -105,27 +104,27 @@ export default function Sidebar({ user }: SidebarProps) {
         })}
       </nav>
 
-      <div className={`mt-auto pt-4 border-t border-slate-800/60 flex items-center gap-3 ${collapsed ? "flex-col" : ""}`}>
+      <div className={`mt-auto pt-4 border-t border-border flex items-center gap-3 ${collapsed ? "flex-col" : ""}`}>
         <div className={`flex items-center gap-3 min-w-0 ${collapsed ? "justify-center" : "flex-1"}`}>
           {user.image ? (
             <img src={user.image} alt={user.name || "User Avatar"} className="h-10 w-10 rounded-full object-cover" />
           ) : (
-            <div className="h-10 w-10 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold text-white uppercase">
+            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-xs font-semibold text-foreground uppercase">
               {user.name ? user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() : "US"}
             </div>
           )}
 
           {!collapsed && (
             <div className="min-w-0 flex-1 text-left">
-              <p className="text-sm font-semibold text-slate-100 truncate">{user.name || "Anonymous"}</p>
-              <p className="text-xs text-slate-400 truncate">{user.email}</p>
+              <p className="text-sm font-semibold text-foreground truncate">{user.name || "Anonymous"}</p>
+              <p className="text-xs text-muted-foreground truncate">{user.email}</p>
             </div>
           )}
         </div>
 
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}
-          className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-rose-950/30 hover:text-rose-400"
+          className="rounded-xl p-2 text-muted-foreground transition-colors hover:bg-rose-500/10 hover:text-rose-500"
           title="Log out"
           aria-label="Log out"
         >

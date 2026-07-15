@@ -18,6 +18,7 @@ import {
 import toast from "react-hot-toast";
 import { clearDraft, draftKey, loadDraft, saveDraft } from "@/lib/drafts";
 import DateInput from "@/components/DateInput";
+import ReferencesPanel from "@/components/ReferencesPanel";
 
 type Note = {
   id: string;
@@ -123,7 +124,7 @@ export default function NotesEditor() {
       if (!map.has(cat)) map.set(cat, []);
       map.get(cat)!.push(note);
     }
-    const order = [...CATEGORIES, ...[...map.keys()].filter((k) => !CATEGORIES.includes(k))];
+    const order = [...CATEGORIES, ...Array.from(map.keys()).filter((k) => !CATEGORIES.includes(k))];
     return order
       .filter((cat) => map.has(cat))
       .map((category) => ({ category, notes: map.get(category)! }));
@@ -508,6 +509,10 @@ export default function NotesEditor() {
             className="note-preview text-foreground flex-1 min-h-0 overflow-y-auto slim-scrollbar"
             dangerouslySetInnerHTML={{ __html: selectedNote.content || "<p>Empty note</p>" }}
           />
+
+          <div className="mt-4 pt-4 border-t border-border/40 shrink-0">
+            <ReferencesPanel sourceType="NOTE" sourceId={selectedNote.id} />
+          </div>
         </div>
       </div>
     ) : null;
@@ -551,12 +556,12 @@ export default function NotesEditor() {
       >
         {draftBanner && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-            <p className="text-xs text-amber-200 font-medium">Unsaved draft found from earlier.</p>
+            <p className="text-xs text-amber-700 dark:text-amber-200 font-medium">Unsaved draft found from earlier.</p>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={restoreDraft}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 text-[11px] font-bold hover:bg-amber-500/30"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[11px] font-bold hover:bg-amber-500/30"
               >
                 <RotateCcw className="h-3 w-3" /> Restore
               </button>

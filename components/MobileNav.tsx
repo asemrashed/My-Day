@@ -145,7 +145,7 @@ export default function MobileNav() {
             <button
               type="button"
               onClick={() => signOut({ callbackUrl: "/login" })}
-              className="flex items-center justify-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-rose-400 transition-colors hover:bg-rose-500/15 hover:text-rose-300"
+              className="flex items-center justify-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-rose-600 dark:text-rose-400 transition-colors hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300"
             >
               <LogOut className="h-4 w-4 shrink-0" />
               <span>Sign out</span>

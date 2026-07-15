@@ -485,12 +485,12 @@ export default function ExpenseDashboard({
   return (
     <div className="space-y-8">
       {/* Visual Navigation Tabs */}
-      <div className="flex bg-slate-950/60 p-1 rounded-2xl border border-slate-800/80 max-w-md">
+      <div className="flex bg-muted p-1 rounded-2xl border border-border max-w-md">
         <button
           onClick={() => setActiveTab("expenses")}
           className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all active:scale-[0.98] ${
             activeTab === "expenses"
-              ? "bg-primary text-white shadow-lg shadow-primary/20"
+              ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
@@ -501,7 +501,7 @@ export default function ExpenseDashboard({
           onClick={() => setActiveTab("loans")}
           className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all active:scale-[0.98] ${
             activeTab === "loans"
-              ? "bg-primary text-white shadow-lg shadow-primary/20"
+              ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
@@ -674,13 +674,13 @@ export default function ExpenseDashboard({
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="border-b border-slate-800">
+                      <tr className="border-b border-border">
                         {["Type", "Category", "Note", "Date", "Amount", ""].map((h) => (
                           <th key={h} className="pb-3 text-[10px] uppercase font-bold text-muted-foreground tracking-wider pr-4 last:pr-0">{h}</th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/50">
+                    <tbody className="divide-y divide-border/50">
                       {paginated.map((tx) => (
                         <tr key={tx.id} className="hover:bg-muted/50 transition-colors group">
                           <td className="py-3 pr-4">

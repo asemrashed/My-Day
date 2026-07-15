@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ChevronLeft, ChevronRight, Plus, Clock } from "lucide-react";
+import Link from "next/link";
+import { ChevronLeft, ChevronRight, Plus, Clock, Target } from "lucide-react";
 import FormModal from "@/components/FormModal";
 import toast from "react-hot-toast";
 
@@ -21,9 +22,18 @@ interface Task {
   status: string;
 }
 
+interface GoalItem {
+  id: string;
+  title: string;
+  dueDate: string;
+  progress: number;
+  period: string;
+}
+
 interface CalendarViewProps {
   initialEvents: CalEvent[];
   upcomingTasks: Task[];
+  goals?: GoalItem[];
 }
 
 const COLOR_OPTIONS = [
@@ -39,7 +49,7 @@ function getColorClass(label: string) {
   return COLOR_OPTIONS.find((c) => c.label === label) || COLOR_OPTIONS[0];
 }
 
-export default function CalendarView({ initialEvents, upcomingTasks }: CalendarViewProps) {
+export default function CalendarView({ initialEvents, upcomingTasks, goals = [] }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<"month" | "week">("month");
   const [events, setEvents] = useState<CalEvent[]>(initialEvents);
@@ -68,6 +78,13 @@ export default function CalendarView({ initialEvents, upcomingTasks }: CalendarV
   const getEventsForDay = (day: number) => {
     return events.filter((e) => {
       const d = new Date(e.startAt);
+      return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
+    });
+  };
+
+  const getGoalsForDay = (day: number) => {
+    return goals.filter((g) => {
+      const d = new Date(g.dueDate);
       return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
     });
   };
@@ -182,6 +199,7 @@ export default function CalendarView({ initialEvents, upcomingTasks }: CalendarV
             {Array.from({ length: totalDays }).map((_, i) => {
               const day = i + 1;
               const dayEvents = getEventsForDay(day);
+              const dayGoals = getGoalsForDay(day);
               const isTodayCell = isToday(day);
 
               return (
@@ -200,6 +218,18 @@ export default function CalendarView({ initialEvents, upcomingTasks }: CalendarV
                     {day}
                   </span>
                   <div className="mt-1 space-y-1">
+                    {dayGoals.slice(0, 2).map((goal) => (
+                      <Link
+                        key={goal.id}
+                        href="/goals"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[9px] font-semibold px-1.5 py-0.5 rounded truncate border border-amber-500/60 bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25 transition-colors flex items-center gap-1"
+                        title={`Goal: ${goal.title} (${goal.progress}%)`}
+                      >
+                        <Target className="h-2.5 w-2.5 shrink-0" />
+                        <span className="truncate">{goal.title}</span>
+                      </Link>
+                    ))}
                     {dayEvents.slice(0, 2).map((ev) => {
                       const colorClass = getColorClass(ev.colorLabel);
                       return (
@@ -213,9 +243,12 @@ export default function CalendarView({ initialEvents, upcomingTasks }: CalendarV
                         </div>
                       );
                     })}
-                    {dayEvents.length > 2 && (
-                      <span className="text-[9px] text-muted-foreground">+{dayEvents.length - 2} more</span>
-                    )}
+                    {(() => {
+                      const hidden = Math.max(dayGoals.length - 2, 0) + Math.max(dayEvents.length - 2, 0);
+                      return hidden > 0 ? (
+                        <span className="text-[9px] text-muted-foreground">+{hidden} more</span>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
               );
@@ -262,6 +295,35 @@ export default function CalendarView({ initialEvents, upcomingTasks }: CalendarV
           )}
         </div>
 
+        {/* Goal deadlines */}
+        <div className="app-card p-5">
+          <h3 className="font-bold text-card-foreground text-sm mb-4 flex items-center gap-2">
+            <Target className="h-4 w-4 text-amber-500" />
+            Goal Deadlines
+          </h3>
+          {goals.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-4">No active goals with a target date</p>
+          ) : (
+            <div className="space-y-2">
+              {goals.slice(0, 5).map((goal) => (
+                <Link
+                  key={goal.id}
+                  href="/goals"
+                  className="block p-3 rounded-xl border border-border bg-muted/60 text-xs hover:border-amber-500/50 transition-colors"
+                >
+                  <p className="font-semibold text-foreground truncate">{goal.title}</p>
+                  <p className="text-muted-foreground mt-0.5">
+                    {new Date(goal.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </p>
+                  <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full rounded-full bg-amber-500" style={{ width: `${goal.progress}%` }} />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Color legend */}
         <div className="app-card p-5">
           <h3 className="font-bold text-card-foreground text-xs mb-3 uppercase tracking-wider">Color Legend</h3>
@@ -303,7 +365,7 @@ export default function CalendarView({ initialEvents, upcomingTasks }: CalendarV
             <div className="flex gap-2 flex-wrap">
               {COLOR_OPTIONS.map((c) => (
                 <button key={c.label} type="button" onClick={() => setNewColor(c.label)}
-                  className={`h-6 w-6 rounded-full ${c.bg} transition-all active:scale-90 ${newColor === c.label ? "ring-2 ring-white ring-offset-2 ring-offset-slate-900 scale-110" : ""}`}
+                  className={`h-6 w-6 rounded-full ${c.bg} transition-all active:scale-90 ${newColor === c.label ? "ring-2 ring-foreground ring-offset-2 ring-offset-card scale-110" : ""}`}
                   title={c.label} />
               ))}
             </div>

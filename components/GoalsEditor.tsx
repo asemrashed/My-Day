@@ -565,7 +565,7 @@ export default function GoalsEditor() {
       >
         {draftBanner && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-            <p className="text-xs text-amber-200 font-medium">Unsaved draft found from earlier.</p>
+            <p className="text-xs text-amber-700 dark:text-amber-200 font-medium">Unsaved draft found from earlier.</p>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -574,7 +574,7 @@ export default function GoalsEditor() {
                   setDraftBanner(null);
                   toast.success("Draft restored");
                 }}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 text-[11px] font-bold hover:bg-amber-500/30"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[11px] font-bold hover:bg-amber-500/30"
               >
                 <RotateCcw className="h-3 w-3" /> Restore
               </button>
