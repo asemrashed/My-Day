@@ -18,7 +18,8 @@ import {
 } from "@dnd-kit/sortable";
 import { reorderTasks, createTask } from "@/app/actions/tasks";
 import TaskCard from "./TaskCard";
-import { Plus, ListTodo, Sparkles, Filter } from "lucide-react";
+import FormModal from "@/components/FormModal";
+import { Plus, ListTodo, Filter } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface Task {
@@ -49,11 +50,21 @@ export default function TaskBoard({ initialTasks }: TaskBoardProps) {
   const [statusFilter, setStatusFilter] = useState("all"); // all, PENDING, DONE
 
   // Task creation states
+  const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState("MEDIUM");
   const [category, setCategory] = useState("Work");
+
+  const resetAddForm = () => {
+    setTitle("");
+    setDescription("");
+    setDueDate("");
+    setPriority("MEDIUM");
+    setCategory("Work");
+    setShowForm(false);
+  };
 
   // Sync initial tasks
   useEffect(() => {
@@ -130,11 +141,7 @@ export default function TaskBoard({ initialTasks }: TaskBoardProps) {
       const res = await createTask(formData);
       if (res.success) {
         toast.success("Task created!");
-        setTitle("");
-        setDescription("");
-        setDueDate("");
-        setPriority("MEDIUM");
-        setCategory("Work");
+        resetAddForm();
         refreshTasks();
       } else {
         toast.error(res.error || "Failed to create task");
@@ -170,89 +177,13 @@ export default function TaskBoard({ initialTasks }: TaskBoardProps) {
 
   return (
     <div className="space-y-6">
-      {/* Quick Add Form Header */}
-      <div className="app-card">
-        <form onSubmit={handleAddTask} className="space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            <h3 className="font-bold text-lg text-card-foreground">Plan a Task</h3>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2">
-              <input
-                type="text"
-                required
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="What needs to be done?"
-                className="app-input px-4 py-3 font-semibold"
-              />
-            </div>
-            <div>
-              <input
-                type="text"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Short description (optional)"
-                className="app-input px-4 py-3"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-semibold">
-            <div>
-              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Due Date</label>
-              <input
-                type="datetime-local"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="app-input px-4 py-2.5 text-xs font-semibold"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Priority</label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="app-input px-4 py-2.5 text-xs font-semibold"
-              >
-                <option value="HIGH">High Priority</option>
-                <option value="MEDIUM">Medium Priority</option>
-                <option value="LOW">Low Priority</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Category</label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="app-input px-4 py-2.5 text-xs font-semibold"
-              >
-                {expenseCategories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-end">
-              <button
-                type="submit"
-                disabled={isPending}
-                className="app-button-primary w-full py-2.5 flex items-center justify-center gap-2"
-              >
-                {isPending ? (
-                  <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                ) : (
-                  <>
-                    <Plus className="h-4 w-4" /> Add Task
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </form>
+      <div className="flex justify-end">
+        <button
+          onClick={() => setShowForm(true)}
+          className="app-button-primary py-2.5 px-4 text-xs font-bold flex items-center gap-1.5"
+        >
+          <Plus className="h-4 w-4" /> Add Task
+        </button>
       </div>
 
       {/* Interactive Filters Panel */}
@@ -334,6 +265,82 @@ export default function TaskBoard({ initialTasks }: TaskBoardProps) {
           </SortableContext>
         </DndContext>
       )}
+
+      <FormModal open={showForm} onClose={resetAddForm} title="Plan a Task">
+        <form onSubmit={handleAddTask} className="space-y-4">
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Task Title</label>
+            <input
+              type="text"
+              required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="What needs to be done?"
+              className="app-input px-4 py-2.5 font-semibold"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Description</label>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Short description (optional)"
+              className="app-input px-4 py-2.5"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-semibold">
+            <div>
+              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Due Date</label>
+              <input
+                type="datetime-local"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="app-input px-4 py-2.5 text-xs font-semibold"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="app-input px-4 py-2.5 text-xs font-semibold"
+              >
+                <option value="HIGH">High Priority</option>
+                <option value="MEDIUM">Medium Priority</option>
+                <option value="LOW">Low Priority</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Category</label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="app-input px-4 py-2.5 text-xs font-semibold"
+              >
+                {expenseCategories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={isPending}
+            className="app-button-primary w-full py-2.5 flex items-center justify-center gap-2"
+          >
+            {isPending ? (
+              <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            ) : (
+              <>
+                <Plus className="h-4 w-4" /> Add Task
+              </>
+            )}
+          </button>
+        </form>
+      </FormModal>
     </div>
   );
 }

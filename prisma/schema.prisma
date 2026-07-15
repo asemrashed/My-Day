@@ -23,8 +23,22 @@ model User {
   loans         Loan[]
   loanPayments  LoanPayment[]
   notifications Notification[]
-  goals         Goal[]
-  notes         Note[]
+  goals             Goal[]
+  notes             Note[]
+  categories        Category[]
+  categoriesSeeded  Boolean  @default(false)
+}
+
+model Category {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  type      String   // INCOME / EXPENSE
+  name      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, name])
 }
 
 model Account {

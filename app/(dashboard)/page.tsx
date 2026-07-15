@@ -4,10 +4,9 @@ import BalanceWidget from "@/components/BalanceWidget";
 import TaskCheckbox from "@/components/TaskCheckbox";
 import GoalsWidget from "@/components/GoalsWidget";
 import NotesWidget from "@/components/NotesWidget";
-import { formatBengaliDate, getTraditionalBengaliDate } from "@/lib/utils";
+import WelcomeToast from "@/components/WelcomeToast";
 import { 
   ArrowRight, 
-  CalendarDays,
   ShoppingBag,
   ListTodo
 } from "lucide-react";
@@ -20,26 +19,6 @@ export default async function DashboardPage() {
   const user = session?.user;
   
   if (!user?.id) return null;
-
-  // Time based greeting
-  const hour = new Date().getHours();
-  let greeting = "Good morning";
-  if (hour >= 12 && hour < 17) greeting = "Good afternoon";
-  else if (hour >= 17 || hour < 4) greeting = "Good evening";
-
-  const today = new Date();
-  
-  // Format English date
-  const englishDate = today.toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-  
-  // Format Bengali date
-  const standardBengaliDate = formatBengaliDate(today);
-  const traditionalBengaliDate = getTraditionalBengaliDate(today);
 
   // Fetch transactions for balance calculations
   const transactions = await prisma.transaction.findMany({
@@ -89,30 +68,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8 pb-10">
-      {/* Dynamic Greetings & Localized Calendars */}
-      <div className="app-card flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 p-6 sm:p-8 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full blur-3xl pointer-events-none"></div>
-        <div className="relative">
-          <h1 className="app-page-title">
-            {greeting}, {user.name?.split(" ")[0] || "User"}
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Welcome back! Here&apos;s a brief snapshot of your day today.
-          </p>
-        </div>
-
-        {/* Date localization card */}
-        <div className="app-panel flex items-center gap-4 px-5 py-3 relative">
-          <CalendarDays className="h-8 w-8 text-primary shrink-0" />
-          <div className="text-left text-xs sm:text-sm">
-            <span className="font-semibold text-foreground block">{englishDate}</span>
-            <span className="text-muted-foreground block mt-0.5">{standardBengaliDate}</span>
-            <span className="text-primary font-medium block text-[11px] mt-0.5 uppercase tracking-wide">
-              {traditionalBengaliDate}
-            </span>
-          </div>
-        </div>
-      </div>
+      <WelcomeToast name={user.name} />
 
       {/* Balance Snapshots */}
       <BalanceWidget

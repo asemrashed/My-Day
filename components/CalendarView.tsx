@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ChevronLeft, ChevronRight, Plus, X, Clock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Clock } from "lucide-react";
+import FormModal from "@/components/FormModal";
 import toast from "react-hot-toast";
 
 interface CalEvent {
@@ -223,52 +224,8 @@ export default function CalendarView({ initialEvents, upcomingTasks }: CalendarV
         </div>
       </div>
 
-      {/* Sidebar: Add Event + Upcoming Tasks */}
+      {/* Sidebar: Upcoming Tasks */}
       <div className="xl:col-span-1 space-y-6">
-        {/* Add Event Form */}
-        {showAddForm && (
-          <div className="app-card p-5 animate-in fade-in slide-in-from-top-3 duration-200">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-card-foreground text-sm">New Event</h3>
-              <button onClick={() => setShowAddForm(false)} className="p-1 text-muted-foreground hover:text-foreground rounded">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <form onSubmit={handleAddEvent} className="space-y-3">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Event Title</label>
-                <input type="text" required value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="e.g. Team sync"
-                  className="app-input text-xs" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Start Time</label>
-                <input type="datetime-local" required value={newStart} onChange={(e) => setNewStart(e.target.value)}
-                  className="app-input text-xs" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">End Time</label>
-                <input type="datetime-local" required value={newEnd} onChange={(e) => setNewEnd(e.target.value)}
-                  className="app-input text-xs" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Color Label</label>
-                <div className="flex gap-2 flex-wrap">
-                  {COLOR_OPTIONS.map((c) => (
-                    <button key={c.label} type="button" onClick={() => setNewColor(c.label)}
-                      className={`h-6 w-6 rounded-full ${c.bg} transition-all active:scale-90 ${newColor === c.label ? "ring-2 ring-white ring-offset-2 ring-offset-slate-900 scale-110" : ""}`}
-                      title={c.label} />
-                  ))}
-                </div>
-              </div>
-              <button type="submit" disabled={isPending}
-                className="app-button-primary w-full py-2 text-xs flex items-center justify-center gap-2">
-                {isPending ? <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "Save Event"}
-              </button>
-            </form>
-          </div>
-        )}
-
         {/* Upcoming Tasks */}
         <div className="app-card p-5">
           <h3 className="font-bold text-card-foreground text-sm mb-4 flex items-center gap-2">
@@ -318,6 +275,45 @@ export default function CalendarView({ initialEvents, upcomingTasks }: CalendarV
           </div>
         </div>
       </div>
+
+      <FormModal
+        open={showAddForm}
+        onClose={() => setShowAddForm(false)}
+        title="New Event"
+      >
+        <form onSubmit={handleAddEvent} className="space-y-3">
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Event Title</label>
+            <input type="text" required value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="e.g. Team sync"
+              className="app-input text-xs" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Start Time</label>
+            <input type="datetime-local" required value={newStart} onChange={(e) => setNewStart(e.target.value)}
+              className="app-input text-xs" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">End Time</label>
+            <input type="datetime-local" required value={newEnd} onChange={(e) => setNewEnd(e.target.value)}
+              className="app-input text-xs" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Color Label</label>
+            <div className="flex gap-2 flex-wrap">
+              {COLOR_OPTIONS.map((c) => (
+                <button key={c.label} type="button" onClick={() => setNewColor(c.label)}
+                  className={`h-6 w-6 rounded-full ${c.bg} transition-all active:scale-90 ${newColor === c.label ? "ring-2 ring-white ring-offset-2 ring-offset-slate-900 scale-110" : ""}`}
+                  title={c.label} />
+              ))}
+            </div>
+          </div>
+          <button type="submit" disabled={isPending}
+            className="app-button-primary w-full py-2.5 text-xs flex items-center justify-center gap-2">
+            {isPending ? <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "Save Event"}
+          </button>
+        </form>
+      </FormModal>
     </div>
   );
 }

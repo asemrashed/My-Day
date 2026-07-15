@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useEffect } from "react";
 import { createTransaction, deleteTransaction, updateTransaction } from "@/app/actions/transactions";
 import {
   createLoan,
@@ -9,29 +9,25 @@ import {
   deleteLoanPayment,
   updateLoan,
 } from "@/app/actions/loans";
+import { getCategories, type CategoryItem } from "@/app/actions/categories";
+import {
+  DEFAULT_EXPENSE_CATEGORIES,
+  DEFAULT_INCOME_CATEGORIES,
+  type CategoryType,
+} from "@/lib/categories";
 import IncomeExpenseBarChart from "@/components/Charts/BarChart";
 import ExpensePieChart from "@/components/Charts/PieChart";
+import FormModal from "@/components/FormModal";
+import CategorySelect from "@/components/CategorySelect";
+import CategoryManager from "@/components/CategoryManager";
+import DateInput from "@/components/DateInput";
 import {
   Plus, Search, Trash2, Edit2, X, TrendingUp, TrendingDown, DollarSign,
-  Banknote, HandCoins, ReceiptText, Pencil, Landmark, Scale
+  Banknote, HandCoins, ReceiptText, Pencil, Scale, ChevronLeft, ChevronRight
 } from "lucide-react";
 import toast from "react-hot-toast";
 
-const EXPENSE_CATEGORIES = [
-  "🚌 Transport (Rickshaw, Bus, CNG, Uber, Pathao)",
-  "🍛 Food (Meal, Tea, Snacks, Restaurant)",
-  "🌐 Internet (Broadband, Mobile Data)",
-  "🤖 AI Tools (Claude, ChatGPT, Copilot)",
-  "☁️ Dev Tools (Domain, Hosting, Software)",
-  "📱 Mobile Recharge",
-  "🏠 Rent & Utilities",
-  "👨‍👩‍👧 Family Support",
-  "🏥 Healthcare",
-  "📚 Learning (Courses, Books)",
-  "💸 Miscellaneous",
-];
-
-const INCOME_CATEGORIES = ["Salary", "Freelance", "Side Project", "Other"];
+const PAGE_SIZE = 10;
 
 interface Transaction {
   id: string;
@@ -104,13 +100,70 @@ export default function ExpenseDashboard({
   const [showForm, setShowForm] = useState(false);
   const [txType, setTxType] = useState("EXPENSE");
   const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
+  const [expenseItems, setExpenseItems] = useState<CategoryItem[]>([]);
+  const [incomeItems, setIncomeItems] = useState<CategoryItem[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<string[]>([...DEFAULT_EXPENSE_CATEGORIES]);
+  const [incomeCategories, setIncomeCategories] = useState<string[]>([...DEFAULT_INCOME_CATEGORIES]);
+  const [category, setCategory] = useState<string>(DEFAULT_EXPENSE_CATEGORIES[0]);
   const [note, setNote] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
+  const [filterCategory, setFilterCategory] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    getCategories().then((res) => {
+      if (res.expense) setExpenseCategories(res.expense);
+      if (res.income) setIncomeCategories(res.income);
+      if (res.items) {
+        setExpenseItems(res.items.filter((i) => i.type === "EXPENSE"));
+        setIncomeItems(res.items.filter((i) => i.type === "INCOME"));
+      }
+    });
+  }, []);
+
+  const activeCategories = txType === "EXPENSE" ? expenseCategories : incomeCategories;
+  const allFilterCategories = useMemo(() => {
+    const fromTx = Array.from(new Set(transactions.map((t) => t.category))).sort();
+    const fromLists = Array.from(new Set([...expenseCategories, ...incomeCategories]));
+    return Array.from(new Set([...fromLists, ...fromTx])).sort((a, b) => a.localeCompare(b));
+  }, [transactions, expenseCategories, incomeCategories]);
+
+  const handleCategoryAdded = (name: string, type: CategoryType, item?: CategoryItem) => {
+    if (type === "EXPENSE") {
+      setExpenseCategories((prev) => (prev.includes(name) ? prev : [...prev, name]));
+      if (item) setExpenseItems((prev) => (prev.some((c) => c.id === item.id) ? prev : [...prev, item]));
+    } else {
+      setIncomeCategories((prev) => (prev.includes(name) ? prev : [...prev, name]));
+      if (item) setIncomeItems((prev) => (prev.some((c) => c.id === item.id) ? prev : [...prev, item]));
+    }
+  };
+
+  const handleCategoryDeleted = (name: string, type: CategoryType) => {
+    if (type === "EXPENSE") {
+      setExpenseCategories((prev) => prev.filter((c) => c !== name));
+      setExpenseItems((prev) => prev.filter((c) => c.name !== name));
+    } else {
+      setIncomeCategories((prev) => prev.filter((c) => c !== name));
+      setIncomeItems((prev) => prev.filter((c) => c.name !== name));
+    }
+    if (category === name) {
+      setCategory(type === "EXPENSE" ? expenseCategories.find((c) => c !== name) || "" : incomeCategories.find((c) => c !== name) || "");
+    }
+    if (filterCategory === name) setFilterCategory("all");
+  };
+
+  const syncCategoriesFromManager = (next: { expenseItems: CategoryItem[]; incomeItems: CategoryItem[] }) => {
+    setExpenseItems(next.expenseItems);
+    setIncomeItems(next.incomeItems);
+    setExpenseCategories(next.expenseItems.map((i) => i.name));
+    setIncomeCategories(next.incomeItems.map((i) => i.name));
+  };
 
   // Loans State
   const [loans, setLoans] = useState<Loan[]>(initialLoans);
@@ -399,14 +452,33 @@ export default function ExpenseDashboard({
     });
   };
 
-  const filtered = transactions.filter((t) => {
-    const matchesType = filterType === "all" || t.type === filterType;
-    const matchesSearch =
-      !search ||
-      t.category.toLowerCase().includes(search.toLowerCase()) ||
-      (t.note && t.note.toLowerCase().includes(search.toLowerCase()));
-    return matchesType && matchesSearch;
-  });
+  const filtered = useMemo(() => {
+    return transactions.filter((t) => {
+      const matchesType = filterType === "all" || t.type === filterType;
+      const matchesCategory = filterCategory === "all" || t.category === filterCategory;
+      const matchesSearch =
+        !search ||
+        t.category.toLowerCase().includes(search.toLowerCase()) ||
+        (t.note && t.note.toLowerCase().includes(search.toLowerCase()));
+
+      const txDay = t.date.slice(0, 10);
+      const matchesFrom = !dateFrom || txDay >= dateFrom;
+      const matchesTo = !dateTo || txDay <= dateTo;
+
+      return matchesType && matchesCategory && matchesSearch && matchesFrom && matchesTo;
+    });
+  }, [transactions, filterType, filterCategory, search, dateFrom, dateTo]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const paginated = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, currentPage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterType, filterCategory, search, dateFrom, dateTo]);
 
   const formatBDT = (n: number) => `৳${Math.abs(n).toLocaleString("en-US")}`;
 
@@ -462,6 +534,26 @@ export default function ExpenseDashboard({
             ))}
           </div>
 
+          {/* Loan Given / Taken Overview */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { label: "Loan Receivable", value: loanTotals.receivable, color: "text-income", icon: HandCoins, bg: "bg-income/10" },
+              { label: "Loan Payable", value: loanTotals.payable, color: "text-expense", icon: Banknote, bg: "bg-expense/10" },
+              { label: "Total Given", value: loanTotals.loanGiven, color: "text-primary", icon: ReceiptText, bg: "bg-primary/10" },
+              { label: "Total Taken", value: loanTotals.loanTaken, color: "text-primary", icon: Banknote, bg: "bg-primary/10" },
+            ].map(({ label, value, color, icon: Icon, bg }) => (
+              <div key={label} className="app-card p-5">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">{label}</span>
+                  <div className={`p-2 rounded-xl ${bg}`}>
+                    <Icon className={`h-4 w-4 ${color}`} />
+                  </div>
+                </div>
+                <p className={`text-xl font-extrabold ${color}`}>{formatBDT(value)}</p>
+              </div>
+            ))}
+          </div>
+
           {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="app-card">
@@ -474,167 +566,190 @@ export default function ExpenseDashboard({
             </div>
           </div>
 
+          {/* Category Manager */}
+          <CategoryManager
+            expenseItems={expenseItems}
+            incomeItems={incomeItems}
+            onChange={syncCategoriesFromManager}
+            onRenamed={(oldName, newName, type) => {
+              setTransactions((prev) =>
+                prev.map((t) =>
+                  t.type === type && t.category === oldName ? { ...t, category: newName } : t
+                )
+              );
+              if (category === oldName) setCategory(newName);
+              if (filterCategory === oldName) setFilterCategory(newName);
+            }}
+          />
+
           {/* Transaction Table */}
           <div className="app-card">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-              <h3 className="font-bold text-card-foreground text-lg">Transaction History</h3>
-              <div className="flex gap-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Search..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="app-input pl-9 pr-4 py-2 text-xs w-40"
-                  />
-                </div>
-                <select
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                  className="px-3 py-2 bg-background border border-border rounded-xl text-foreground text-xs focus:outline-none focus:border-primary"
-                >
-                  <option value="all">All</option>
-                  <option value="INCOME">Income</option>
-                  <option value="EXPENSE">Expense</option>
-                </select>
-                <button
-                  onClick={() => { setShowForm(!showForm); setEditingId(null); }}
-                  className="app-button-primary flex items-center gap-2 text-xs"
-                >
-                  <Plus className="h-4 w-4" /> Add
-                </button>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
+              <div>
+                <h3 className="font-bold text-card-foreground text-lg">Transaction History</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {filtered.length} result{filtered.length === 1 ? "" : "s"}
+                  {filtered.length > 0 && (
+                    <> · Page {currentPage} of {totalPages}</>
+                  )}
+                </p>
               </div>
+              <button
+                onClick={() => { resetForm(); setShowForm(true); }}
+                className="app-button-primary flex items-center gap-2 text-xs self-start"
+              >
+                <Plus className="h-4 w-4" /> Add
+              </button>
             </div>
 
-            {/* Add / Edit Form */}
-            {showForm && (
-              <div className="app-panel p-5 mb-6 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="flex justify-between items-center mb-4">
-                  <h4 className="text-sm font-bold text-foreground">{editingId ? "Edit Transaction" : "New Transaction"}</h4>
-                  <button onClick={resetForm} className="p-1 text-muted-foreground hover:text-foreground rounded">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Type</label>
-                    <div className="flex bg-muted p-0.5 rounded-xl">
-                      {["EXPENSE", "INCOME"].map((t) => (
-                        <button key={t} type="button" onClick={() => {
-                          setTxType(t);
-                          setCategory(t === "EXPENSE" ? EXPENSE_CATEGORIES[0] : INCOME_CATEGORIES[0]);
-                        }}
-                          className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
-                            txType === t
-                              ? t === "INCOME" ? "bg-income text-white" : "bg-expense text-white"
-                              : "text-muted-foreground"
-                          }`}>
-                          {t === "INCOME" ? "Income" : "Expense"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 mb-6">
+              <div className="relative xl:col-span-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search note / category..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="app-input pl-9 pr-4 py-2 text-xs w-full"
+                />
+              </div>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="app-input py-2 text-xs"
+              >
+                <option value="all">All types</option>
+                <option value="INCOME">Income</option>
+                <option value="EXPENSE">Expense</option>
+              </select>
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="app-input py-2 text-xs"
+              >
+                <option value="all">All categories</option>
+                {allFilterCategories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <DateInput
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="py-2 text-xs"
+                title="From date"
+              />
+              <DateInput
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="py-2 text-xs"
+                title="To date"
+              />
+            </div>
 
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Amount (৳)</label>
-                    <input type="number" required min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)}
-                      placeholder="e.g. 2500"
-                      className="app-input text-xs" />
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Category</label>
-                    <select value={category} onChange={(e) => setCategory(e.target.value)}
-                      className="app-input text-xs">
-                      {(txType === "EXPENSE" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES).map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Date</label>
-                    <input type="date" required value={date} onChange={(e) => setDate(e.target.value)}
-                      className="app-input text-xs" />
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Note</label>
-                    <input type="text" value={note} onChange={(e) => setNote(e.target.value)}
-                      placeholder="e.g. Rickshaw to office"
-                      className="app-input text-xs" />
-                  </div>
-
-                  <div className="flex items-end">
-                    <button type="submit" disabled={isPending}
-                      className={`w-full py-2.5 font-semibold text-white rounded-xl text-xs active:scale-95 transition-all flex items-center justify-center gap-2 ${
-                        txType === "INCOME" ? "bg-income hover:bg-income/90" : "bg-expense hover:bg-expense/90"
-                      }`}>
-                      {isPending
-                        ? <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        : editingId ? "Save Changes" : "Record"}
-                    </button>
-                  </div>
-                </form>
+            {(filterType !== "all" || filterCategory !== "all" || search || dateFrom || dateTo) && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterType("all");
+                    setFilterCategory("all");
+                    setSearch("");
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                  className="text-[11px] font-bold text-primary hover:underline"
+                >
+                  Clear filters
+                </button>
               </div>
             )}
 
-            {/* Table */}
             {filtered.length === 0 ? (
               <div className="text-center py-16 text-muted-foreground">
                 <TrendingDown className="h-12 w-12 mx-auto opacity-10 mb-3" />
                 <p className="text-sm font-medium">No transactions found</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-slate-800">
-                      {["Type", "Category", "Note", "Date", "Amount", ""].map((h) => (
-                        <th key={h} className="pb-3 text-[10px] uppercase font-bold text-muted-foreground tracking-wider pr-4 last:pr-0">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/50">
-                    {filtered.map((tx) => (
-                      <tr key={tx.id} className="hover:bg-muted/50 transition-colors group">
-                        <td className="py-3 pr-4">
-                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                            tx.type === "INCOME"
-                              ? "bg-income/10 text-income border border-income/20"
-                              : "bg-expense/10 text-expense border border-expense/20"
-                          }`}>
-                            {tx.type === "INCOME" ? "IN" : "OUT"}
-                          </span>
-                        </td>
-                        <td className="py-3 pr-4 text-xs font-medium text-foreground max-w-[160px] truncate">{tx.category}</td>
-                        <td className="py-3 pr-4 text-xs text-muted-foreground max-w-[120px] truncate">{tx.note || "—"}</td>
-                        <td className="py-3 pr-4 text-xs text-muted-foreground whitespace-nowrap">
-                          {new Date(tx.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
-                        </td>
-                        <td className={`py-3 pr-4 text-sm font-extrabold whitespace-nowrap ${
-                          tx.type === "INCOME" ? "text-income" : "text-expense"
-                        }`}>
-                          {tx.type === "INCOME" ? "+" : "−"}{formatBDT(tx.amount)}
-                        </td>
-                        <td className="py-3 text-right">
-                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => startEdit(tx)}
-                              className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted active:scale-90 transition-all">
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                            <button onClick={() => handleDelete(tx.id)}
-                              className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-90 transition-all">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-slate-800">
+                        {["Type", "Category", "Note", "Date", "Amount", ""].map((h) => (
+                          <th key={h} className="pb-3 text-[10px] uppercase font-bold text-muted-foreground tracking-wider pr-4 last:pr-0">{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {paginated.map((tx) => (
+                        <tr key={tx.id} className="hover:bg-muted/50 transition-colors group">
+                          <td className="py-3 pr-4">
+                            <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                              tx.type === "INCOME"
+                                ? "bg-income/10 text-income border border-income/20"
+                                : "bg-expense/10 text-expense border border-expense/20"
+                            }`}>
+                              {tx.type === "INCOME" ? "IN" : "OUT"}
+                            </span>
+                          </td>
+                          <td className="py-3 pr-4 text-xs font-medium text-foreground max-w-[160px] truncate">{tx.category}</td>
+                          <td className="py-3 pr-4 text-xs text-muted-foreground max-w-[120px] truncate">{tx.note || "—"}</td>
+                          <td className="py-3 pr-4 text-xs text-muted-foreground whitespace-nowrap">
+                            {new Date(tx.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
+                          </td>
+                          <td className={`py-3 pr-4 text-sm font-extrabold whitespace-nowrap ${
+                            tx.type === "INCOME" ? "text-income" : "text-expense"
+                          }`}>
+                            {tx.type === "INCOME" ? "+" : "−"}{formatBDT(tx.amount)}
+                          </td>
+                          <td className="py-3 text-right">
+                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => startEdit(tx)}
+                                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted active:scale-90 transition-all">
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button onClick={() => handleDelete(tx.id)}
+                                className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-90 transition-all">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between gap-3 mt-6 pt-4 border-t border-border/40">
+                    <p className="text-[11px] text-muted-foreground">
+                      Showing {(currentPage - 1) * PAGE_SIZE + 1}–
+                      {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={currentPage <= 1}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-border text-xs font-semibold hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="h-3.5 w-3.5" /> Prev
+                      </button>
+                      <span className="text-xs font-bold tabular-nums min-w-[3rem] text-center">
+                        {currentPage}/{totalPages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={currentPage >= totalPages}
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-border text-xs font-semibold hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Next <ChevronRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -691,56 +806,6 @@ export default function ExpenseDashboard({
                 </button>
               </div>
             </div>
-
-            {showLoanForm && (
-              <form onSubmit={handleLoanSubmit} className="app-panel mt-6 grid grid-cols-1 gap-4 p-5 md:grid-cols-3 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div>
-                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Direction</label>
-                  <div className="flex rounded-xl bg-muted p-0.5">
-                    {["GIVEN", "TAKEN"].map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setLoanDirection(item)}
-                        className={`flex-1 rounded-lg py-2 text-xs font-bold transition-colors ${
-                          loanDirection === item ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {item === "GIVEN" ? "Given" : "Taken"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Person</label>
-                  <input className="app-input text-xs" required value={personName} onChange={(event) => setPersonName(event.target.value)} placeholder="Name" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Principal</label>
-                  <input className="app-input text-xs" required min="0.01" step="0.01" type="number" value={principal} onChange={(event) => setPrincipal(event.target.value)} placeholder="5000" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Interest %</label>
-                  <input className="app-input text-xs" min="0" step="0.01" type="number" value={interestRate} onChange={(event) => setInterestRate(event.target.value)} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Date</label>
-                  <input className="app-input text-xs" type="date" value={loanDate} onChange={(event) => setLoanDate(event.target.value)} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Note</label>
-                  <input className="app-input text-xs" value={loanNote} onChange={(event) => setLoanNote(event.target.value)} placeholder="Optional" />
-                </div>
-                <div className="flex gap-2 md:col-span-3 md:justify-end">
-                  <button type="button" onClick={resetLoanForm} className="rounded-xl border border-border px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted">
-                    Cancel
-                  </button>
-                  <button type="submit" disabled={isPending} className="app-button-primary text-xs">
-                    {editingLoanId ? "Save Loan" : "Record Loan"}
-                  </button>
-                </div>
-              </form>
-            )}
           </div>
 
           {filteredLoans.length === 0 ? (
@@ -813,9 +878,8 @@ export default function ExpenseDashboard({
                         onChange={(event) => setPaymentNotes((prev) => ({ ...prev, [loan.id]: event.target.value }))}
                         placeholder="Repayment note"
                       />
-                      <input
-                        className="app-input text-xs"
-                        type="date"
+                      <DateInput
+                        className="text-xs"
                         disabled={outstanding === 0}
                         value={paymentDate}
                         onChange={(event) => setPaymentDates((prev) => ({ ...prev, [loan.id]: event.target.value }))}
@@ -866,6 +930,198 @@ export default function ExpenseDashboard({
           )}
         </div>
       )}
+
+      <FormModal
+        open={showForm}
+        onClose={resetForm}
+        title={editingId ? "Edit Transaction" : "New Transaction"}
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Type</label>
+            <div className="flex bg-muted p-0.5 rounded-xl">
+              {["EXPENSE", "INCOME"].map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => {
+                    setTxType(t);
+                    setCategory(
+                      t === "EXPENSE" ? expenseCategories[0] : incomeCategories[0]
+                    );
+                  }}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+                    txType === t
+                      ? t === "INCOME"
+                        ? "bg-income text-white"
+                        : "bg-expense text-white"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {t === "INCOME" ? "Income" : "Expense"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Amount (৳)</label>
+            <input
+              type="number"
+              required
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="e.g. 2500"
+              className="app-input text-xs"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <CategorySelect
+              type={txType as CategoryType}
+              value={category}
+              options={activeCategories}
+              onChange={setCategory}
+              onCategoryAdded={handleCategoryAdded}
+              onCategoryDeleted={handleCategoryDeleted}
+            />
+            <div>
+              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Date</label>
+              <DateInput
+                required
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="text-xs"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Note</label>
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. Rickshaw to office"
+              className="app-input text-xs"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isPending}
+            className={`w-full py-2.5 font-semibold text-white rounded-xl text-xs active:scale-95 transition-all flex items-center justify-center gap-2 ${
+              txType === "INCOME" ? "bg-income hover:bg-income/90" : "bg-expense hover:bg-expense/90"
+            }`}
+          >
+            {isPending ? (
+              <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : editingId ? (
+              "Save Changes"
+            ) : (
+              "Record"
+            )}
+          </button>
+        </form>
+      </FormModal>
+
+      <FormModal
+        open={showLoanForm}
+        onClose={resetLoanForm}
+        title={editingLoanId ? "Edit Loan" : "Record Loan"}
+      >
+        <form onSubmit={handleLoanSubmit} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Direction
+            </label>
+            <div className="flex rounded-xl bg-muted p-0.5">
+              {["GIVEN", "TAKEN"].map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setLoanDirection(item)}
+                  className={`flex-1 rounded-lg py-2 text-xs font-bold transition-colors ${
+                    loanDirection === item
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {item === "GIVEN" ? "Given" : "Taken"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Person
+            </label>
+            <input
+              className="app-input text-xs"
+              required
+              value={personName}
+              onChange={(event) => setPersonName(event.target.value)}
+              placeholder="Name"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Principal
+              </label>
+              <input
+                className="app-input text-xs"
+                required
+                min="0.01"
+                step="0.01"
+                type="number"
+                value={principal}
+                onChange={(event) => setPrincipal(event.target.value)}
+                placeholder="5000"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Interest %
+              </label>
+              <input
+                className="app-input text-xs"
+                min="0"
+                step="0.01"
+                type="number"
+                value={interestRate}
+                onChange={(event) => setInterestRate(event.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Date
+            </label>
+            <DateInput
+              className="text-xs"
+              value={loanDate}
+              onChange={(event) => setLoanDate(event.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Note
+            </label>
+            <input
+              className="app-input text-xs"
+              value={loanNote}
+              onChange={(event) => setLoanNote(event.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+          <button type="submit" disabled={isPending} className="app-button-primary w-full text-xs py-2.5">
+            {editingLoanId ? "Save Loan" : "Record Loan"}
+          </button>
+        </form>
+      </FormModal>
     </div>
   );
 }

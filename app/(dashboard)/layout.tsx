@@ -1,4 +1,4 @@
-import { auth, signOut } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import Image from "next/image";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -6,9 +6,7 @@ import { redirect } from "next/navigation";
 import NotificationBell from "@/components/NotificationBell";
 import ThemeToggle from "@/components/ThemeToggle";
 import QuickAddModal from "@/components/QuickAddModal";
-import { 
-  LogOut, 
-} from "lucide-react";
+import HeaderDate from "@/components/HeaderDate";
 import thryveLogo from "@/app/thryve.png";
 import { Metadata } from "next";
 
@@ -58,38 +56,20 @@ export default async function DashboardLayout({
           </div>
 
           <div className="flex items-center gap-3">
+            <HeaderDate />
             <ThemeToggle />
             <NotificationBell />
-            
-            {/* Mobile Log Out Section */}
-            <form
-              action={async () => {
-                "use server";
-                await signOut({ redirectTo: "/login" });
-              }}
-              className="md:hidden"
-            >
-              <button
-                type="submit"
-                className="app-icon-button hover:text-destructive"
-                title="Log Out"
-              >
-                <LogOut className="h-5 w-5" />
-              </button>
-            </form>
+            <MobileNav />
           </div>
         </header>
 
         {/* Nested Dashboard Views */}
-        <main className="flex-grow p-4 md:p-8 overflow-y-auto max-w-7xl w-full mx-auto">
+        <main className="flex-grow min-h-0 flex flex-col p-4 md:p-8 overflow-y-auto max-w-7xl w-full mx-auto">
           {children}
         </main>
       </div>
 
       <QuickAddModal />
-
-      {/* Mobile Bottom Navigation Bar (Hidden on Large Screen) */}
-      <MobileNav />
     </div>
   );
 }

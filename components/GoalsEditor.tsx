@@ -1,7 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, Link as LinkIcon, Image as ImageIcon, CheckSquare, ChevronDown, ChevronUp, Calendar } from "lucide-react";
+import { Plus, Trash2, Edit2, Link as LinkIcon, Image as ImageIcon, CheckSquare, ChevronDown, ChevronUp, Calendar, RotateCcw } from "lucide-react";
+import FormModal from "@/components/FormModal";
+import DateInput from "@/components/DateInput";
+import { clearDraft, draftKey, loadDraft, saveDraft } from "@/lib/drafts";
 import toast from "react-hot-toast";
 
 type ChecklistItem = {
@@ -34,11 +37,22 @@ type Goal = {
   createdAt: string;
 };
 
+type GoalDraft = {
+  title: string;
+  period: string;
+  dueDate: string;
+  rawText: string;
+  checklist: ChecklistItem[];
+  links: Hyperlink[];
+  images: string[];
+};
+
 export default function GoalsEditor() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
 
   // Form State
+  const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [period, setPeriod] = useState("WEEKLY");
   const [dueDate, setDueDate] = useState("");
@@ -58,10 +72,25 @@ export default function GoalsEditor() {
 
   // Expanded View states
   const [expandedGoalId, setExpandedGoalId] = useState<string | null>(null);
+  const [draftBanner, setDraftBanner] = useState<GoalDraft | null>(null);
 
   useEffect(() => {
     fetchGoals();
   }, []);
+
+  useEffect(() => {
+    if (!showForm) return;
+    const t = setTimeout(() => {
+      const key = draftKey("goal", editingGoalId);
+      const empty = !title.trim() && !rawText.trim() && checklist.length === 0 && links.length === 0 && images.length === 0;
+      if (empty) {
+        clearDraft(key);
+        return;
+      }
+      saveDraft<GoalDraft>(key, { title, period, dueDate, rawText, checklist, links, images });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [showForm, editingGoalId, title, period, dueDate, rawText, checklist, links, images]);
 
   const fetchGoals = () => {
     fetch("/api/goals")
@@ -147,6 +176,16 @@ export default function GoalsEditor() {
     setImages(images.filter((_, i) => i !== index));
   };
 
+  const applyGoalDraft = (draft: GoalDraft) => {
+    setTitle(draft.title);
+    setPeriod(draft.period || "WEEKLY");
+    setDueDate(draft.dueDate || "");
+    setRawText(draft.rawText || "");
+    setChecklist(draft.checklist || []);
+    setLinks(draft.links || []);
+    setImages(draft.images || []);
+  };
+
   // Reset form to pristine state
   const resetForm = () => {
     setTitle("");
@@ -157,6 +196,8 @@ export default function GoalsEditor() {
     setLinks([]);
     setImages([]);
     setEditingGoalId(null);
+    setShowForm(false);
+    setDraftBanner(null);
   };
 
   // Handle Form Submit
@@ -202,6 +243,7 @@ export default function GoalsEditor() {
 
       if (res.ok) {
         toast.success(editingGoalId ? "Goal updated!" : "Goal created!");
+        clearDraft(draftKey("goal", editingGoalId));
         resetForm();
         fetchGoals();
       } else {
@@ -215,18 +257,52 @@ export default function GoalsEditor() {
   // Edit Goal
   const startEditGoal = (goal: Goal) => {
     setEditingGoalId(goal.id);
-    setTitle(goal.title);
-    setPeriod(goal.period);
-    setDueDate(goal.dueDate ? goal.dueDate.slice(0, 10) : "");
-    
     const parsedDesc = parseDescription(goal.description);
-    setRawText(parsedDesc.text);
-    setChecklist(parsedDesc.checklist);
-    setLinks(parsedDesc.links);
-    setImages(parsedDesc.images);
+    const base: GoalDraft = {
+      title: goal.title,
+      period: goal.period,
+      dueDate: goal.dueDate ? goal.dueDate.slice(0, 10) : "",
+      rawText: parsedDesc.text,
+      checklist: parsedDesc.checklist,
+      links: parsedDesc.links,
+      images: parsedDesc.images,
+    };
+    applyGoalDraft(base);
 
-    // Scroll to form on mobile
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const existing = loadDraft<GoalDraft>(draftKey("goal", goal.id));
+    if (existing?.data && JSON.stringify(existing.data) !== JSON.stringify(base)) {
+      setDraftBanner(existing.data);
+    } else {
+      setDraftBanner(null);
+    }
+    setShowForm(true);
+  };
+
+  const openCreateGoal = () => {
+    setEditingGoalId(null);
+    applyGoalDraft({
+      title: "",
+      period: "WEEKLY",
+      dueDate: "",
+      rawText: "",
+      checklist: [],
+      links: [],
+      images: [],
+    });
+    const existing = loadDraft<GoalDraft>(draftKey("goal", null));
+    if (
+      existing?.data &&
+      (existing.data.title ||
+        existing.data.rawText ||
+        existing.data.checklist.length ||
+        existing.data.links.length ||
+        existing.data.images.length)
+    ) {
+      setDraftBanner(existing.data);
+    } else {
+      setDraftBanner(null);
+    }
+    setShowForm(true);
   };
 
   // Delete Goal
@@ -312,220 +388,22 @@ export default function GoalsEditor() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-      {/* LEFT COLUMN: Add / Edit form */}
-      <div className="lg:col-span-5 app-card p-6 border border-border/60 bg-slate-900/40 relative">
-        <h2 className="text-md font-bold mb-4 flex items-center gap-2 text-foreground">
-          {editingGoalId ? (
-            <>
-              <Edit2 className="h-4 w-4 text-primary" /> Edit Goal
-            </>
-          ) : (
-            <>
-              <Plus className="h-4 w-4 text-primary" /> Create New Goal
-            </>
-          )}
-        </h2>
-
-        <form onSubmit={handleFormSubmit} className="space-y-4">
-          <div>
-            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Goal Title</label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Learn full-stack development"
-              className="app-input text-xs py-2.5"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Period</label>
-              <select
-                value={period}
-                onChange={(e) => setPeriod(e.target.value)}
-                className="app-input text-xs py-2.5"
-              >
-                <option value="DAILY">Daily</option>
-                <option value="WEEKLY">Weekly</option>
-                <option value="MONTHLY">Monthly</option>
-                <option value="YEARLY">Yearly</option>
-                <option value="CUSTOM">Custom</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Target Date</label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="app-input text-xs py-2.5"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Description</label>
-            <textarea
-              value={rawText}
-              onChange={(e) => setRawText(e.target.value)}
-              placeholder="Describe what you want to achieve..."
-              className="app-input text-xs h-20 py-2 resize-none"
-            />
-          </div>
-
-          {/* Checklist Area */}
-          <div className="border border-border/40 p-4 rounded-xl bg-slate-950/20">
-            <label className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1.5 mb-2">
-              <CheckSquare className="h-3.5 w-3.5" /> Checklist Tasks
-            </label>
-            <div className="flex gap-2 mb-3">
-              <input
-                value={newChecklistItem}
-                onChange={(e) => setNewChecklistItem(e.target.value)}
-                placeholder="e.g. Code for 2 hours"
-                className="app-input text-xs py-1.5 flex-1"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addChecklistItem();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                onClick={addChecklistItem}
-                className="app-button-primary px-3 py-1.5 text-xs flex items-center gap-1 shrink-0"
-              >
-                Add
-              </button>
-            </div>
-
-            {checklist.length > 0 && (
-              <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
-                {checklist.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between gap-3 p-2 bg-muted/30 border border-border/30 rounded-lg text-xs">
-                    <span className="truncate text-foreground/80">{item.text}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeChecklistItem(item.id)}
-                      className="text-muted-foreground hover:text-destructive p-0.5"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Links Area */}
-          <div className="border border-border/40 p-4 rounded-xl bg-slate-950/20">
-            <label className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1.5 mb-2">
-              <LinkIcon className="h-3.5 w-3.5" /> Hyperlinks
-            </label>
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <input
-                value={linkTitle}
-                onChange={(e) => setLinkTitle(e.target.value)}
-                placeholder="Title"
-                className="app-input text-xs py-1.5"
-              />
-              <input
-                value={linkUrl}
-                onChange={(e) => setLinkUrl(e.target.value)}
-                placeholder="URL"
-                className="app-input text-xs py-1.5"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={addLink}
-              className="app-button-primary w-full py-1.5 text-xs flex items-center justify-center gap-1"
-            >
-              Add Hyperlink
-            </button>
-
-            {links.length > 0 && (
-              <div className="space-y-1.5 mt-3 max-h-[140px] overflow-y-auto pr-1">
-                {links.map((link) => (
-                  <div key={link.id} className="flex items-center justify-between gap-3 p-2 bg-muted/30 border border-border/30 rounded-lg text-xs">
-                    <span className="truncate font-semibold text-primary">{link.title}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeLink(link.id)}
-                      className="text-muted-foreground hover:text-destructive p-0.5"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Image Attachments */}
-          <div className="border border-border/40 p-4 rounded-xl bg-slate-950/20">
-            <label className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1.5 mb-2">
-              <ImageIcon className="h-3.5 w-3.5" /> Image Attachments
-            </label>
-            <div className="relative border border-dashed border-border/60 rounded-xl p-4 flex flex-col items-center justify-center hover:bg-slate-900/20 transition-all cursor-pointer">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="absolute inset-0 opacity-0 cursor-pointer"
-              />
-              <ImageIcon className="h-6 w-6 text-muted-foreground mb-1" />
-              <span className="text-[10px] font-semibold text-muted-foreground">Upload Image</span>
-            </div>
-
-            {images.length > 0 && (
-              <div className="grid grid-cols-4 gap-2 mt-3">
-                {images.map((img, idx) => (
-                  <div key={idx} className="relative aspect-square border border-border/60 rounded-lg overflow-hidden group">
-                    <img src={img} alt="Attachment" className="h-full w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => removeImage(idx)}
-                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition-all"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="flex gap-2 pt-2">
-            {editingGoalId && (
-              <button
-                type="button"
-                onClick={resetForm}
-                className="flex-1 rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted active:scale-[0.98] transition-all"
-              >
-                Cancel
-              </button>
-            )}
-            <button
-              type="submit"
-              className="flex-[2] app-button-primary py-2.5 text-xs font-semibold"
-            >
-              {editingGoalId ? "Save Goal" : "Create Goal"}
-            </button>
-          </div>
-        </form>
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <button
+          onClick={openCreateGoal}
+          className="app-button-primary py-2.5 px-4 text-xs font-bold flex items-center gap-1.5"
+        >
+          <Plus className="h-4 w-4" /> Create Goal
+        </button>
       </div>
 
-      {/* RIGHT COLUMN: categorized list */}
-      <div className="lg:col-span-7 space-y-6">
+      <div className="space-y-6">
         {goals.length === 0 ? (
           <div className="app-card py-16 text-center text-muted-foreground">
             <CheckSquare className="mx-auto h-12 w-12 opacity-15 mb-3" />
             <p className="text-sm font-semibold">No goals recorded yet</p>
-            <p className="text-xs text-muted-foreground mt-1">Add goals on the left to map your progress!</p>
+            <p className="text-xs text-muted-foreground mt-1">Create a goal to map your progress!</p>
           </div>
         ) : (
           periods.map((cat) => {
@@ -590,7 +468,6 @@ export default function GoalsEditor() {
                           </div>
                         </div>
 
-                        {/* Progress slider bar */}
                         <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden border border-border mt-3">
                           <div
                             className="h-full bg-primary transition-all duration-300"
@@ -598,7 +475,6 @@ export default function GoalsEditor() {
                           />
                         </div>
 
-                        {/* Expanded details */}
                         {isExpanded && (
                           <div className="mt-4 pt-4 border-t border-border/40 space-y-4 animate-in fade-in duration-200">
                             {parsedDesc.text && (
@@ -607,7 +483,6 @@ export default function GoalsEditor() {
                               </div>
                             )}
 
-                            {/* Checklist toggles */}
                             {parsedDesc.checklist.length > 0 && (
                               <div className="space-y-2">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Checklist Items</span>
@@ -632,7 +507,6 @@ export default function GoalsEditor() {
                               </div>
                             )}
 
-                            {/* Attached Hyperlinks */}
                             {parsedDesc.links.length > 0 && (
                               <div className="space-y-2">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Links & Resources</span>
@@ -653,7 +527,6 @@ export default function GoalsEditor() {
                               </div>
                             )}
 
-                            {/* Embedded Image Galleries */}
                             {parsedDesc.images.length > 0 && (
                               <div className="space-y-2">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Attached Screens</span>
@@ -683,6 +556,215 @@ export default function GoalsEditor() {
           })
         )}
       </div>
+
+      <FormModal
+        open={showForm}
+        onClose={resetForm}
+        title={editingGoalId ? "Edit Goal" : "Create New Goal"}
+        maxWidth="xl"
+      >
+        {draftBanner && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+            <p className="text-xs text-amber-200 font-medium">Unsaved draft found from earlier.</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  applyGoalDraft(draftBanner);
+                  setDraftBanner(null);
+                  toast.success("Draft restored");
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 text-[11px] font-bold hover:bg-amber-500/30"
+              >
+                <RotateCcw className="h-3 w-3" /> Restore
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearDraft(draftKey("goal", editingGoalId));
+                  setDraftBanner(null);
+                  toast.success("Draft discarded");
+                }}
+                className="px-2.5 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:bg-muted"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+        <form onSubmit={handleFormSubmit} className="space-y-4">
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Goal Title</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Learn full-stack development"
+              className="app-input text-xs py-2.5"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Period</label>
+              <select
+                value={period}
+                onChange={(e) => setPeriod(e.target.value)}
+                className="app-input text-xs py-2.5"
+              >
+                <option value="DAILY">Daily</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="MONTHLY">Monthly</option>
+                <option value="YEARLY">Yearly</option>
+                <option value="CUSTOM">Custom</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Target Date</label>
+              <DateInput
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="text-xs py-2.5"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Description</label>
+            <textarea
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder="Describe what you want to achieve..."
+              className="app-input text-xs h-20 py-2 resize-none"
+            />
+          </div>
+
+          <div className="border border-border/40 p-4 rounded-xl bg-muted/20">
+            <label className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1.5 mb-2">
+              <CheckSquare className="h-3.5 w-3.5" /> Checklist Tasks
+            </label>
+            <div className="flex gap-2 mb-3">
+              <input
+                value={newChecklistItem}
+                onChange={(e) => setNewChecklistItem(e.target.value)}
+                placeholder="e.g. Code for 2 hours"
+                className="app-input text-xs py-1.5 flex-1"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addChecklistItem();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={addChecklistItem}
+                className="app-button-primary px-3 py-1.5 text-xs flex items-center gap-1 shrink-0"
+              >
+                Add
+              </button>
+            </div>
+
+            {checklist.length > 0 && (
+              <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+                {checklist.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between gap-3 p-2 bg-muted/30 border border-border/30 rounded-lg text-xs">
+                    <span className="truncate text-foreground/80">{item.text}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeChecklistItem(item.id)}
+                      className="text-muted-foreground hover:text-destructive p-0.5"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="border border-border/40 p-4 rounded-xl bg-muted/20">
+            <label className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1.5 mb-2">
+              <LinkIcon className="h-3.5 w-3.5" /> Hyperlinks
+            </label>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <input
+                value={linkTitle}
+                onChange={(e) => setLinkTitle(e.target.value)}
+                placeholder="Title"
+                className="app-input text-xs py-1.5"
+              />
+              <input
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                placeholder="URL"
+                className="app-input text-xs py-1.5"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={addLink}
+              className="app-button-primary w-full py-1.5 text-xs flex items-center justify-center gap-1"
+            >
+              Add Hyperlink
+            </button>
+
+            {links.length > 0 && (
+              <div className="space-y-1.5 mt-3 max-h-[140px] overflow-y-auto pr-1">
+                {links.map((link) => (
+                  <div key={link.id} className="flex items-center justify-between gap-3 p-2 bg-muted/30 border border-border/30 rounded-lg text-xs">
+                    <span className="truncate font-semibold text-primary">{link.title}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeLink(link.id)}
+                      className="text-muted-foreground hover:text-destructive p-0.5"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="border border-border/40 p-4 rounded-xl bg-muted/20">
+            <label className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1.5 mb-2">
+              <ImageIcon className="h-3.5 w-3.5" /> Image Attachments
+            </label>
+            <div className="relative border border-dashed border-border/60 rounded-xl p-4 flex flex-col items-center justify-center hover:bg-muted/40 transition-all cursor-pointer">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+              />
+              <ImageIcon className="h-6 w-6 text-muted-foreground mb-1" />
+              <span className="text-[10px] font-semibold text-muted-foreground">Upload Image</span>
+            </div>
+
+            {images.length > 0 && (
+              <div className="grid grid-cols-4 gap-2 mt-3">
+                {images.map((img, idx) => (
+                  <div key={idx} className="relative aspect-square border border-border/60 rounded-lg overflow-hidden group">
+                    <img src={img} alt="Attachment" className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(idx)}
+                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition-all"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button type="submit" className="w-full app-button-primary py-2.5 text-xs font-semibold">
+            {editingGoalId ? "Save Goal" : "Create Goal"}
+          </button>
+        </form>
+      </FormModal>
     </div>
   );
 }

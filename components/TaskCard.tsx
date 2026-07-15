@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toggleTaskStatus, deleteTask, updateTask } from "@/app/actions/tasks";
-import { GripVertical, Trash2, Edit2, X, Clock, RefreshCw } from "lucide-react";
+import FormModal from "@/components/FormModal";
+import { GripVertical, Trash2, Edit2, Clock, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface Task {
@@ -118,98 +119,6 @@ export default function TaskCard({ task, onRefresh }: TaskCardProps) {
     }
   };
 
-  // Render Inline Edit Form
-  if (isEditing) {
-    return (
-      <div className="app-card-compact p-5 w-full">
-        <form onSubmit={handleSave} className="space-y-4">
-          <div className="flex justify-between items-center mb-1">
-            <h4 className="text-sm font-bold text-card-foreground">Edit Task</h4>
-            <button
-              type="button"
-              onClick={() => setIsEditing(false)}
-              className="p-1 rounded text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <input
-            type="text"
-            required
-            value={editedTitle}
-            onChange={(e) => setEditedTitle(e.target.value)}
-            className="app-input text-xs font-semibold"
-            placeholder="Task title"
-          />
-
-          <textarea
-            value={editedDesc}
-            onChange={(e) => setEditedDesc(e.target.value)}
-            className="app-input text-xs resize-none"
-            placeholder="Description"
-            rows={2}
-          />
-
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Priority</label>
-              <select
-                value={editedPriority}
-                onChange={(e) => setEditedPriority(e.target.value)}
-                className="app-input text-xs"
-              >
-                <option value="HIGH">High</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="LOW">Low</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Category</label>
-              <select
-                value={editedCategory}
-                onChange={(e) => setEditedCategory(e.target.value)}
-                className="app-input text-xs"
-              >
-                {taskCategories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Due Date</label>
-            <input
-              type="datetime-local"
-              value={editedDueDate}
-              onChange={(e) => setEditedDueDate(e.target.value)}
-              className="app-input text-xs"
-            />
-          </div>
-
-          <div className="flex gap-2 justify-end pt-2">
-            <button
-              type="button"
-              onClick={() => setIsEditing(false)}
-              className="px-3 py-1.5 rounded-lg border border-border text-foreground hover:bg-muted text-xs font-semibold"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="app-button-primary px-4 py-1.5 text-xs"
-            >
-              Save Changes
-            </button>
-          </div>
-        </form>
-      </div>
-    );
-  }
-
   // Format date readable
   const formattedDate = task.dueDate
     ? new Date(task.dueDate).toLocaleDateString("en-US", {
@@ -221,6 +130,7 @@ export default function TaskCard({ task, onRefresh }: TaskCardProps) {
     : null;
 
   return (
+    <>
     <div
       ref={setNodeRef}
       style={style}
@@ -308,5 +218,70 @@ export default function TaskCard({ task, onRefresh }: TaskCardProps) {
         </button>
       </div>
     </div>
+
+    <FormModal open={isEditing} onClose={() => setIsEditing(false)} title="Edit Task">
+      <form onSubmit={handleSave} className="space-y-4">
+        <input
+          type="text"
+          required
+          value={editedTitle}
+          onChange={(e) => setEditedTitle(e.target.value)}
+          className="app-input text-xs font-semibold"
+          placeholder="Task title"
+        />
+
+        <textarea
+          value={editedDesc}
+          onChange={(e) => setEditedDesc(e.target.value)}
+          className="app-input text-xs resize-none"
+          placeholder="Description"
+          rows={2}
+        />
+
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Priority</label>
+            <select
+              value={editedPriority}
+              onChange={(e) => setEditedPriority(e.target.value)}
+              className="app-input text-xs"
+            >
+              <option value="HIGH">High</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="LOW">Low</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Category</label>
+            <select
+              value={editedCategory}
+              onChange={(e) => setEditedCategory(e.target.value)}
+              className="app-input text-xs"
+            >
+              {taskCategories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Due Date</label>
+          <input
+            type="datetime-local"
+            value={editedDueDate}
+            onChange={(e) => setEditedDueDate(e.target.value)}
+            className="app-input text-xs"
+          />
+        </div>
+
+        <button type="submit" className="app-button-primary w-full px-4 py-2.5 text-xs">
+          Save Changes
+        </button>
+      </form>
+    </FormModal>
+    </>
   );
 }

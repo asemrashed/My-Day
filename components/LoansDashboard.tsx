@@ -8,6 +8,7 @@ import {
   deleteLoanPayment,
   updateLoan,
 } from "@/app/actions/loans";
+import DateInput from "@/components/DateInput";
 import { Banknote, HandCoins, Pencil, Plus, ReceiptText, Trash2, X } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -332,7 +333,7 @@ export default function LoansDashboard({ initialLoans }: LoansDashboardProps) {
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Date</label>
-              <input className="app-input text-xs" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+              <DateInput className="text-xs" value={date} onChange={(event) => setDate(event.target.value)} />
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Note</label>
@@ -420,9 +421,8 @@ export default function LoansDashboard({ initialLoans }: LoansDashboardProps) {
                     onChange={(event) => setPaymentNotes((prev) => ({ ...prev, [loan.id]: event.target.value }))}
                     placeholder="Repayment note"
                   />
-                  <input
-                    className="app-input text-xs"
-                    type="date"
+                  <DateInput
+                    className="text-xs"
                     disabled={outstanding === 0}
                     value={paymentDate}
                     onChange={(event) => setPaymentDates((prev) => ({ ...prev, [loan.id]: event.target.value }))}

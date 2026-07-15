@@ -1,32 +1,25 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { createTask } from "@/app/actions/tasks";
 import { createTransaction } from "@/app/actions/transactions";
-import { Plus, X, CheckSquare, DollarSign } from "lucide-react";
+import { getCategories } from "@/app/actions/categories";
+import {
+  DEFAULT_EXPENSE_CATEGORIES,
+  DEFAULT_INCOME_CATEGORIES,
+  type CategoryType,
+} from "@/lib/categories";
+import CategorySelect from "@/components/CategorySelect";
+import DateInput from "@/components/DateInput";
+import { Plus, X, CheckSquare, DollarSign, Target, FileText } from "lucide-react";
 import toast from "react-hot-toast";
 
-const expenseCategories = [
-  "🚌 Transport (Rickshaw, Bus, CNG, Uber, Pathao)",
-  "🍛 Food (Meal, Tea, Snacks, Restaurant)",
-  "🌐 Internet (Broadband, Mobile Data)",
-  "🤖 AI Tools (Claude, ChatGPT, Copilot)",
-  "☁️ Dev Tools (Domain, Hosting, Software)",
-  "📱 Mobile Recharge",
-  "🏠 Rent & Utilities",
-  "👨👩👧 Family Support",
-  "🏥 Healthcare",
-  "📚 Learning (Courses, Books)",
-  "💸 Miscellaneous",
-];
-
-const incomeCategories = ["Salary", "Freelance", "Side Project", "Other"];
-
 const taskCategories = ["Work", "Personal", "Learning", "Health", "Shopping", "Other"];
+const noteCategories = ["Inbox", "Personal", "Work", "Finance", "Dev", "Other"];
 
 export default function QuickAddModal() {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeModal, setActiveModal] = useState<"none" | "task" | "transaction">("none");
+  const [activeModal, setActiveModal] = useState<"none" | "task" | "transaction" | "goal" | "note">("none");
   const [isPending, startTransition] = useTransition();
 
   // Task form states
@@ -39,9 +32,47 @@ export default function QuickAddModal() {
   // Transaction form states
   const [txType, setTxType] = useState("EXPENSE");
   const [txAmount, setTxAmount] = useState("");
-  const [txCategory, setTxCategory] = useState(expenseCategories[0]);
+  const [expenseCategories, setExpenseCategories] = useState<string[]>([...DEFAULT_EXPENSE_CATEGORIES]);
+  const [incomeCategories, setIncomeCategories] = useState<string[]>([...DEFAULT_INCOME_CATEGORIES]);
+  const [txCategory, setTxCategory] = useState<string>(DEFAULT_EXPENSE_CATEGORIES[0]);
   const [txNote, setTxNote] = useState("");
   const [txDate, setTxDate] = useState(new Date().toISOString().split("T")[0]);
+
+  // Goal form states
+  const [goalTitle, setGoalTitle] = useState("");
+  const [goalPeriod, setGoalPeriod] = useState("MONTHLY");
+  const [goalDueDate, setGoalDueDate] = useState("");
+  const [goalDesc, setGoalDesc] = useState("");
+
+  // Note form states
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+  const [noteCategory, setNoteCategory] = useState("Inbox");
+
+  useEffect(() => {
+    getCategories().then((res) => {
+      if (res.expense) setExpenseCategories(res.expense);
+      if (res.income) setIncomeCategories(res.income);
+    });
+  }, []);
+
+  const handleCategoryAdded = (name: string, type: CategoryType) => {
+    if (type === "EXPENSE") {
+      setExpenseCategories((prev) => (prev.includes(name) ? prev : [...prev, name]));
+    } else {
+      setIncomeCategories((prev) => (prev.includes(name) ? prev : [...prev, name]));
+    }
+  };
+
+  const handleCategoryDeleted = (name: string, type: CategoryType) => {
+    if (type === "EXPENSE") {
+      setExpenseCategories((prev) => prev.filter((c) => c !== name));
+      if (txCategory === name) setTxCategory(expenseCategories.find((c) => c !== name) || "");
+    } else {
+      setIncomeCategories((prev) => prev.filter((c) => c !== name));
+      if (txCategory === name) setTxCategory(incomeCategories.find((c) => c !== name) || "");
+    }
+  };
 
   const handleTaskSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,8 +136,89 @@ export default function QuickAddModal() {
     });
   };
 
+  const handleGoalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!goalTitle.trim()) {
+      toast.error("Goal title is required");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const res = await fetch("/api/goals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: goalTitle.trim(),
+            period: goalPeriod,
+            dueDate: goalDueDate || null,
+            description: JSON.stringify({
+              text: goalDesc.trim(),
+              checklist: [],
+              links: [],
+              images: [],
+            }),
+          }),
+        });
+
+        if (res.ok) {
+          toast.success("Goal created successfully!");
+          setGoalTitle("");
+          setGoalPeriod("MONTHLY");
+          setGoalDueDate("");
+          setGoalDesc("");
+          setActiveModal("none");
+          setIsOpen(false);
+        } else {
+          toast.error("Failed to create goal");
+        }
+      } catch {
+        toast.error("Failed to create goal");
+      }
+    });
+  };
+
+  const handleNoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!noteTitle.trim() && !noteContent.trim()) {
+      toast.error("Please enter a title or note content");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const content = noteContent.trim()
+          ? `<p>${noteContent.trim().replace(/\n/g, "<br>")}</p>`
+          : "<p></p>";
+
+        const res = await fetch("/api/notes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: noteTitle.trim() || "Untitled Note",
+            content,
+            attachments: [noteCategory],
+          }),
+        });
+
+        if (res.ok) {
+          toast.success("Note created successfully!");
+          setNoteTitle("");
+          setNoteContent("");
+          setNoteCategory("Inbox");
+          setActiveModal("none");
+          setIsOpen(false);
+        } else {
+          toast.error("Failed to create note");
+        }
+      } catch {
+        toast.error("Failed to create note");
+      }
+    });
+  };
+
   return (
-    <div className="fixed bottom-24 md:bottom-8 right-6 z-50">
+    <div className="fixed bottom-8 right-6 z-50">
       {/* Trigger floating button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -127,7 +239,9 @@ export default function QuickAddModal() {
           <button
             onClick={() => {
               setActiveModal("transaction");
-              setTxCategory(txType === "INCOME" ? incomeCategories[0] : expenseCategories[0]);
+              setTxCategory(
+                txType === "INCOME" ? incomeCategories[0] : expenseCategories[0]
+              );
             }}
             className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-card border border-border text-card-foreground hover:bg-muted font-semibold shadow-xl active:scale-95 transition-all text-xs"
           >
@@ -142,6 +256,24 @@ export default function QuickAddModal() {
           >
             <CheckSquare className="h-4 w-4 text-primary" />
             Add New Task
+          </button>
+
+          {/* Quick Goal Button */}
+          <button
+            onClick={() => setActiveModal("goal")}
+            className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-card border border-border text-card-foreground hover:bg-muted font-semibold shadow-xl active:scale-95 transition-all text-xs"
+          >
+            <Target className="h-4 w-4 text-primary" />
+            Add Goal
+          </button>
+
+          {/* Quick Note Button */}
+          <button
+            onClick={() => setActiveModal("note")}
+            className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-card border border-border text-card-foreground hover:bg-muted font-semibold shadow-xl active:scale-95 transition-all text-xs"
+          >
+            <FileText className="h-4 w-4 text-primary" />
+            Add Notes
           </button>
         </div>
       )}
@@ -310,38 +442,23 @@ export default function QuickAddModal() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
-                      Category
-                    </label>
-                    <select
-                      value={txCategory}
-                      onChange={(e) => setTxCategory(e.target.value)}
-                      className="app-input px-4 py-2.5 text-sm"
-                    >
-                      {txType === "EXPENSE"
-                        ? expenseCategories.map((c) => (
-                            <option key={c} value={c}>
-                              {c}
-                            </option>
-                          ))
-                        : incomeCategories.map((c) => (
-                            <option key={c} value={c}>
-                              {c}
-                            </option>
-                          ))}
-                    </select>
-                  </div>
+                  <CategorySelect
+                    type={txType as CategoryType}
+                    value={txCategory}
+                    options={txType === "EXPENSE" ? expenseCategories : incomeCategories}
+                    onChange={setTxCategory}
+                    onCategoryAdded={handleCategoryAdded}
+                    onCategoryDeleted={handleCategoryDeleted}
+                  />
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
                       Transaction Date
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       required
                       value={txDate}
                       onChange={(e) => setTxDate(e.target.value)}
-                      className="app-input px-4 py-2.5 text-sm"
+                      className="px-4 py-2.5 text-sm"
                     />
                   </div>
                 </div>
@@ -370,6 +487,143 @@ export default function QuickAddModal() {
                     <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
                   ) : (
                     `Record ${txType === "INCOME" ? "Income" : "Expense"}`
+                  )}
+                </button>
+              </form>
+            )}
+
+            {/* Render Goal Form */}
+            {activeModal === "goal" && (
+              <form onSubmit={handleGoalSubmit} className="space-y-4">
+                <h3 className="text-xl font-bold text-card-foreground mb-2">Create New Goal</h3>
+
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                    Goal Title
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={goalTitle}
+                    onChange={(e) => setGoalTitle(e.target.value)}
+                    placeholder="e.g. Learn full-stack development"
+                    className="app-input px-4 py-2.5"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                      Period
+                    </label>
+                    <select
+                      value={goalPeriod}
+                      onChange={(e) => setGoalPeriod(e.target.value)}
+                      className="app-input px-4 py-2.5 text-sm"
+                    >
+                      <option value="DAILY">Daily</option>
+                      <option value="WEEKLY">Weekly</option>
+                      <option value="MONTHLY">Monthly</option>
+                      <option value="YEARLY">Yearly</option>
+                      <option value="CUSTOM">Custom</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                      Target Date
+                    </label>
+                    <DateInput
+                      value={goalDueDate}
+                      onChange={(e) => setGoalDueDate(e.target.value)}
+                      className="px-4 py-2.5 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                    Description (Optional)
+                  </label>
+                  <textarea
+                    value={goalDesc}
+                    onChange={(e) => setGoalDesc(e.target.value)}
+                    placeholder="Describe what you want to achieve..."
+                    rows={3}
+                    className="app-input px-4 py-2.5 resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="app-button-primary w-full py-3 px-4 flex items-center justify-center gap-2 mt-4"
+                >
+                  {isPending ? (
+                    <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  ) : (
+                    "Create Goal"
+                  )}
+                </button>
+              </form>
+            )}
+
+            {/* Render Note Form */}
+            {activeModal === "note" && (
+              <form onSubmit={handleNoteSubmit} className="space-y-4">
+                <h3 className="text-xl font-bold text-card-foreground mb-2">Create New Note</h3>
+
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                    Title
+                  </label>
+                  <input
+                    type="text"
+                    value={noteTitle}
+                    onChange={(e) => setNoteTitle(e.target.value)}
+                    placeholder="e.g. Meeting notes"
+                    className="app-input px-4 py-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={noteCategory}
+                    onChange={(e) => setNoteCategory(e.target.value)}
+                    className="app-input px-4 py-2.5 text-sm"
+                  >
+                    {noteCategories.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                    Content
+                  </label>
+                  <textarea
+                    value={noteContent}
+                    onChange={(e) => setNoteContent(e.target.value)}
+                    placeholder="Write your note..."
+                    rows={5}
+                    className="app-input px-4 py-2.5 resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="app-button-primary w-full py-3 px-4 flex items-center justify-center gap-2 mt-4"
+                >
+                  {isPending ? (
+                    <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  ) : (
+                    "Create Note"
                   )}
                 </button>
               </form>
