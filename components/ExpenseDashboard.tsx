@@ -21,6 +21,7 @@ import FormModal from "@/components/FormModal";
 import CategorySelect from "@/components/CategorySelect";
 import CategoryManager from "@/components/CategoryManager";
 import DateInput from "@/components/DateInput";
+import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
 import {
   Plus, Search, Trash2, Edit2, X, TrendingUp, TrendingDown, DollarSign,
   Banknote, HandCoins, ReceiptText, Pencil, Scale, ChevronLeft, ChevronRight
@@ -49,10 +50,17 @@ interface CategoryData {
   value: number;
 }
 
+interface ServerTransaction {
+  id: string;
+  type: string;
+  amount: number;
+  category: string;
+  note: string | null;
+  date: string | Date;
+}
+
 interface TransactionResult {
-  transaction?: {
-    id?: string;
-  };
+  transaction?: ServerTransaction;
   error?: string;
 }
 
@@ -65,6 +73,7 @@ interface LoanPayment {
 
 interface Loan {
   id: string;
+  transactionId: string | null;
   direction: string;
   personName: string;
   principal: number;
@@ -84,12 +93,16 @@ interface ExpenseDashboardProps {
   initialLoans: Loan[];
 }
 
+function getPaid(loan: Loan) {
+  return loan.payments.reduce((sum, payment) => sum + payment.amount, 0);
+}
+
+function getOutstanding(loan: Loan) {
+  return Math.max(loan.principal - getPaid(loan), 0);
+}
+
 export default function ExpenseDashboard({
   transactions: initialTx,
-  monthlyData,
-  categoryData,
-  totalIncome,
-  totalExpense,
   initialLoans,
 }: ExpenseDashboardProps) {
   // Navigation / Tabs
@@ -133,6 +146,59 @@ export default function ExpenseDashboard({
     const fromLists = Array.from(new Set([...expenseCategories, ...incomeCategories]));
     return Array.from(new Set([...fromLists, ...fromTx])).sort((a, b) => a.localeCompare(b));
   }, [transactions, expenseCategories, incomeCategories]);
+
+  const toClientTransaction = (transaction: ServerTransaction): Transaction => ({
+    ...transaction,
+    date: transaction.date instanceof Date ? transaction.date.toISOString() : String(transaction.date),
+  });
+
+  const upsertTransaction = (transaction: ServerTransaction) => {
+    const normalized = toClientTransaction(transaction);
+    setTransactions((prev) =>
+      prev.some((item) => item.id === normalized.id)
+        ? prev.map((item) => (item.id === normalized.id ? normalized : item))
+        : [normalized, ...prev]
+    );
+  };
+
+  const currentTotalIncome = useMemo(
+    () => transactions.filter((t) => t.type === "INCOME").reduce((sum, t) => sum + t.amount, 0),
+    [transactions]
+  );
+  const currentTotalExpense = useMemo(
+    () => transactions.filter((t) => t.type === "EXPENSE").reduce((sum, t) => sum + t.amount, 0),
+    [transactions]
+  );
+  const currentMonthlyData = useMemo(() => {
+    const today = new Date();
+    return Array.from({ length: 6 }, (_, index) => {
+      const monthDate = subMonths(today, 5 - index);
+      const start = startOfMonth(monthDate);
+      const end = endOfMonth(monthDate);
+      const monthTx = transactions.filter((t) => {
+        const txDate = new Date(t.date);
+        return txDate >= start && txDate <= end;
+      });
+
+      return {
+        month: format(monthDate, "MMM yy"),
+        income: monthTx.filter((t) => t.type === "INCOME").reduce((sum, t) => sum + t.amount, 0),
+        expense: monthTx.filter((t) => t.type === "EXPENSE").reduce((sum, t) => sum + t.amount, 0),
+      };
+    });
+  }, [transactions]);
+  const currentCategoryData = useMemo(() => {
+    const categories = transactions
+      .filter((t) => t.type === "EXPENSE")
+      .reduce<Record<string, number>>((acc, transaction) => {
+        acc[transaction.category] = (acc[transaction.category] || 0) + transaction.amount;
+        return acc;
+      }, {});
+
+    return Object.entries(categories)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [transactions]);
 
   const handleCategoryAdded = (name: string, type: CategoryType, item?: CategoryItem) => {
     if (type === "EXPENSE") {
@@ -180,11 +246,7 @@ export default function ExpenseDashboard({
   const [paymentNotes, setPaymentNotes] = useState<Record<string, string>>({});
   const [paymentDates, setPaymentDates] = useState<Record<string, string>>({});
 
-  const balance = totalIncome - totalExpense;
-
-  // Loan Computations
-  const getPaid = (loan: Loan) => loan.payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const getOutstanding = (loan: Loan) => Math.max(loan.principal - getPaid(loan), 0);
+  const balance = currentTotalIncome - currentTotalExpense;
 
   const loanTotals = useMemo(() => {
     return loans.reduce(
@@ -216,6 +278,10 @@ export default function ExpenseDashboard({
   }, [loans]);
 
   const filteredLoans = loans.filter((loan) => statusFilter === "all" || loan.status === statusFilter);
+  const loanHistory = useMemo(
+    () => [...loans].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [loans]
+  );
 
   // Expense Handlers
   const handleSubmit = async (e: React.FormEvent) => {
@@ -249,15 +315,10 @@ export default function ExpenseDashboard({
         if (res.success && res.transaction) {
           const transactionResult = res as TransactionResult;
           toast.success("Transaction recorded!");
-          const newTx: Transaction = {
-            id: transactionResult.transaction?.id || crypto.randomUUID(),
-            type: txType,
-            amount: parseFloat(amount),
-            category,
-            note,
-            date,
-          };
-          setTransactions((prev) => [newTx, ...prev]);
+          if (transactionResult.transaction) {
+            const newTx = toClientTransaction(transactionResult.transaction);
+            setTransactions((prev) => [newTx, ...prev]);
+          }
           resetForm();
         } else {
           toast.error((res as TransactionResult).error || "Failed to record");
@@ -334,6 +395,9 @@ export default function ExpenseDashboard({
 
         if (res.success && res.loan) {
           toast.success("Loan updated");
+          if (res.transaction) {
+            upsertTransaction(res.transaction);
+          }
           setLoans((prev) =>
             prev.map((l) =>
               l.id === editingLoanId
@@ -366,6 +430,9 @@ export default function ExpenseDashboard({
       const res = await createLoan(formData);
       if (res.success && res.loan) {
         toast.success("Loan recorded");
+        if (res.transaction) {
+          upsertTransaction(res.transaction);
+        }
         setLoans((prev) => [
           {
             ...res.loan,
@@ -383,12 +450,16 @@ export default function ExpenseDashboard({
 
   const handleDeleteLoan = (id: string) => {
     if (!confirm("Delete this loan and its repayments?")) return;
+    const loanToDelete = loans.find((loan) => loan.id === id);
 
     startTransition(async () => {
       const res = await deleteLoan(id);
       if (res.success) {
         toast.success("Loan deleted");
         setLoans((prev) => prev.filter((l) => l.id !== id));
+        if (loanToDelete?.transactionId) {
+          setTransactions((prev) => prev.filter((transaction) => transaction.id !== loanToDelete.transactionId));
+        }
       } else {
         toast.error(res.error || "Failed to delete loan");
       }
@@ -516,9 +587,9 @@ export default function ExpenseDashboard({
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { label: "Balance", value: balance, color: balance >= 0 ? "text-income" : "text-expense", icon: DollarSign, bg: "bg-primary/10" },
-              { label: "Total Income", value: totalIncome, color: "text-income", icon: TrendingUp, bg: "bg-income/10" },
-              { label: "Total Expense", value: totalExpense, color: "text-expense", icon: TrendingDown, bg: "bg-expense/10" },
-              { label: "Savings %", value: totalIncome > 0 ? Math.max(0, Math.round((balance / totalIncome) * 100)) : 0, color: "text-primary", icon: DollarSign, bg: "bg-primary/10", isPercent: true },
+              { label: "Total Income", value: currentTotalIncome, color: "text-income", icon: TrendingUp, bg: "bg-income/10" },
+              { label: "Total Expense", value: currentTotalExpense, color: "text-expense", icon: TrendingDown, bg: "bg-expense/10" },
+              { label: "Savings %", value: currentTotalIncome > 0 ? Math.max(0, Math.round((balance / currentTotalIncome) * 100)) : 0, color: "text-primary", icon: DollarSign, bg: "bg-primary/10", isPercent: true },
             ].map(({ label, value, color, icon: Icon, bg, isPercent }) => (
               <div key={label} className="app-card p-5">
                 <div className="flex justify-between items-center mb-3">
@@ -558,11 +629,11 @@ export default function ExpenseDashboard({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="app-card">
               <h3 className="font-bold text-card-foreground text-sm mb-4">Monthly Income vs Expenses</h3>
-              <IncomeExpenseBarChart data={monthlyData} />
+              <IncomeExpenseBarChart data={currentMonthlyData} />
             </div>
             <div className="app-card">
               <h3 className="font-bold text-card-foreground text-sm mb-4">Expense Breakdown by Category</h3>
-              <ExpensePieChart data={categoryData} />
+              <ExpensePieChart data={currentCategoryData} />
             </div>
           </div>
 
@@ -928,6 +999,84 @@ export default function ExpenseDashboard({
               })}
             </div>
           )}
+
+          <div className="app-card">
+            <div className="mb-4">
+              <h3 className="font-bold text-card-foreground text-lg">Loan History</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {loanHistory.length} record{loanHistory.length === 1 ? "" : "s"} of money given or taken.
+              </p>
+            </div>
+
+            {loanHistory.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">No loan history yet</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="border-b border-border">
+                      {["Date", "Taken/Given Person", "Amount", "Action"].map((heading) => (
+                        <th
+                          key={heading}
+                          className="pb-3 pr-4 text-[10px] font-bold uppercase tracking-wider text-muted-foreground last:pr-0"
+                        >
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {loanHistory.map((loan) => (
+                      <tr key={loan.id} className="group transition-colors hover:bg-muted/50">
+                        <td className="py-3 pr-4 text-xs text-muted-foreground whitespace-nowrap">
+                          {new Date(loan.date).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "2-digit",
+                          })}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                                loan.direction === "GIVEN"
+                                  ? "border-income/20 bg-income/10 text-income"
+                                  : "border-expense/20 bg-expense/10 text-expense"
+                              }`}
+                            >
+                              {loan.direction === "GIVEN" ? "Given" : "Taken"}
+                            </span>
+                            <span className="text-xs font-semibold text-foreground">{loan.personName}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 pr-4 text-sm font-extrabold text-foreground whitespace-nowrap">
+                          {formatBDT(loan.principal)}
+                        </td>
+                        <td className="py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => startEditLoan(loan)}
+                              className="rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-muted hover:text-primary active:scale-90"
+                              title="Edit loan"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteLoan(loan.id)}
+                              className="rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive active:scale-90"
+                              title="Delete loan"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

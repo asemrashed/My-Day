@@ -20,6 +20,17 @@ function parsePositiveNumber(value: FormDataEntryValue | null, label: string) {
   return amount;
 }
 
+const LOAN_TRANSACTION_CATEGORY = "Loan";
+
+function getLoanTransactionType(direction: string) {
+  return direction === "TAKEN" ? "INCOME" : "EXPENSE";
+}
+
+function getLoanTransactionNote(direction: string, personName: string, note: string) {
+  const action = direction === "TAKEN" ? "Loan taken from" : "Loan given to";
+  return [action, personName, note ? `- ${note}` : ""].filter(Boolean).join(" ");
+}
+
 async function getLoanOutstanding(loanId: string) {
   const loan = await prisma.loan.findUnique({
     where: { id: loanId },
@@ -57,22 +68,36 @@ export async function createLoan(formData: FormData) {
       return { error: "Interest rate cannot be negative" };
     }
 
+    const loanDate = dateStr ? new Date(dateStr) : new Date();
+    const transaction = await prisma.transaction.create({
+      data: {
+        userId,
+        type: getLoanTransactionType(direction),
+        amount: principal,
+        category: LOAN_TRANSACTION_CATEGORY,
+        note: getLoanTransactionNote(direction, personName, note),
+        date: loanDate,
+      },
+    });
+
     const loan = await prisma.loan.create({
       data: {
         userId,
+        transactionId: transaction.id,
         direction,
         personName,
         principal,
         interestRate,
         note: note || null,
-        date: dateStr ? new Date(dateStr) : new Date(),
+        date: loanDate,
       },
       include: { payments: true },
     });
 
     revalidatePath("/");
+    revalidatePath("/expenses");
     revalidatePath("/loans");
-    return { success: true, loan };
+    return { success: true, loan, transaction };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to create loan" };
   }
@@ -110,23 +135,59 @@ export async function updateLoan(id: string, data: {
       return { error: "Principal cannot be less than recorded repayments" };
     }
 
+    const loanDate = data.date ? new Date(data.date) : new Date();
+    const transactionData = {
+      type: getLoanTransactionType(data.direction),
+      amount: principal,
+      category: LOAN_TRANSACTION_CATEGORY,
+      note: getLoanTransactionNote(data.direction, data.personName.trim(), data.note.trim()),
+      date: loanDate,
+    };
+    let transactionId = current.loan.transactionId;
+    let transaction = null;
+
+    if (transactionId) {
+      const existingTransaction = await prisma.transaction.findUnique({ where: { id: transactionId } });
+
+      if (existingTransaction?.userId === userId) {
+        transaction = await prisma.transaction.update({
+          where: { id: transactionId },
+          data: transactionData,
+        });
+      } else {
+        transactionId = null;
+      }
+    }
+
+    if (!transactionId) {
+      transaction = await prisma.transaction.create({
+        data: {
+          userId,
+          ...transactionData,
+        },
+      });
+      transactionId = transaction.id;
+    }
+
     const loan = await prisma.loan.update({
       where: { id },
       data: {
+        transactionId,
         direction: data.direction,
         personName: data.personName.trim(),
         principal,
         interestRate,
         note: data.note.trim() || null,
-        date: data.date ? new Date(data.date) : new Date(),
+        date: loanDate,
         status: principal <= current.paid ? "PAID" : "OPEN",
       },
       include: { payments: true },
     });
 
     revalidatePath("/");
+    revalidatePath("/expenses");
     revalidatePath("/loans");
-    return { success: true, loan };
+    return { success: true, loan, transaction };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to update loan" };
   }
@@ -142,8 +203,14 @@ export async function deleteLoan(id: string) {
     }
 
     await prisma.loan.delete({ where: { id } });
+    if (loan.transactionId) {
+      await prisma.transaction.deleteMany({
+        where: { id: loan.transactionId, userId },
+      });
+    }
 
     revalidatePath("/");
+    revalidatePath("/expenses");
     revalidatePath("/loans");
     return { success: true };
   } catch (error) {
@@ -185,6 +252,7 @@ export async function createLoanPayment(formData: FormData) {
     }
 
     revalidatePath("/");
+    revalidatePath("/expenses");
     revalidatePath("/loans");
     return { success: true, payment };
   } catch (error) {
@@ -211,6 +279,7 @@ export async function deleteLoanPayment(id: string) {
     });
 
     revalidatePath("/");
+    revalidatePath("/expenses");
     revalidatePath("/loans");
     return { success: true };
   } catch (error) {

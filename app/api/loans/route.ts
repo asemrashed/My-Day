@@ -7,6 +7,17 @@ async function getUserId() {
   return session?.user?.id || null;
 }
 
+const LOAN_TRANSACTION_CATEGORY = "Loan";
+
+function getLoanTransactionType(direction: string) {
+  return direction === "TAKEN" ? "INCOME" : "EXPENSE";
+}
+
+function getLoanTransactionNote(direction: string, personName: string, note: string) {
+  const action = direction === "TAKEN" ? "Loan taken from" : "Loan given to";
+  return [action, personName, note ? `- ${note}` : ""].filter(Boolean).join(" ");
+}
+
 async function getOutstanding(loanId: string) {
   const loan = await prisma.loan.findUnique({
     where: { id: loanId },
@@ -94,20 +105,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Interest rate cannot be negative" }, { status: 400 });
     }
 
+    const loanDate = body.date ? new Date(body.date) : new Date();
+    const transaction = await prisma.transaction.create({
+      data: {
+        userId,
+        type: getLoanTransactionType(body.direction),
+        amount: principal,
+        category: LOAN_TRANSACTION_CATEGORY,
+        note: getLoanTransactionNote(body.direction, body.personName, body.note || ""),
+        date: loanDate,
+      },
+    });
+
     const loan = await prisma.loan.create({
       data: {
         userId,
+        transactionId: transaction.id,
         direction: body.direction,
         personName: body.personName,
         principal,
         interestRate,
         note: body.note || null,
-        date: body.date ? new Date(body.date) : new Date(),
+        date: loanDate,
       },
       include: { payments: true },
     });
 
-    return NextResponse.json({ loan }, { status: 201 });
+    return NextResponse.json({ loan, transaction }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to save loan" }, { status: 500 });
   }
@@ -132,21 +156,56 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Invalid principal" }, { status: 400 });
     }
 
+    const loanDate = body.date ? new Date(body.date) : new Date();
+    const transactionData = {
+      type: getLoanTransactionType(body.direction),
+      amount: principal,
+      category: LOAN_TRANSACTION_CATEGORY,
+      note: getLoanTransactionNote(body.direction, body.personName, body.note || ""),
+      date: loanDate,
+    };
+    let transactionId = current.loan.transactionId;
+    let transaction = null;
+
+    if (transactionId) {
+      const existingTransaction = await prisma.transaction.findUnique({ where: { id: transactionId } });
+
+      if (existingTransaction?.userId === userId) {
+        transaction = await prisma.transaction.update({
+          where: { id: transactionId },
+          data: transactionData,
+        });
+      } else {
+        transactionId = null;
+      }
+    }
+
+    if (!transactionId) {
+      transaction = await prisma.transaction.create({
+        data: {
+          userId,
+          ...transactionData,
+        },
+      });
+      transactionId = transaction.id;
+    }
+
     const loan = await prisma.loan.update({
       where: { id: body.id },
       data: {
+        transactionId,
         direction: body.direction,
         personName: body.personName,
         principal,
         interestRate,
         note: body.note || null,
-        date: body.date ? new Date(body.date) : new Date(),
+        date: loanDate,
         status: principal <= current.paid ? "PAID" : "OPEN",
       },
       include: { payments: true },
     });
 
-    return NextResponse.json({ loan });
+    return NextResponse.json({ loan, transaction });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update loan" }, { status: 500 });
   }
@@ -184,6 +243,11 @@ export async function DELETE(req: NextRequest) {
     }
 
     await prisma.loan.delete({ where: { id } });
+    if (loan.transactionId) {
+      await prisma.transaction.deleteMany({
+        where: { id: loan.transactionId, userId },
+      });
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to delete loan" }, { status: 500 });

@@ -25,6 +25,7 @@ model User {
   notifications Notification[]
   goals             Goal[]
   notes             Note[]
+  projects          Project[]
   categories        Category[]
   links             Link[]
   categoriesSeeded  Boolean  @default(false)
@@ -114,6 +115,7 @@ model Transaction {
 model Loan {
   id           String        @id @default(auto()) @map("_id") @db.ObjectId
   userId       String        @db.ObjectId
+  transactionId String?      @db.ObjectId
   direction    String        // GIVEN / TAKEN
   personName   String
   principal    Float
@@ -168,15 +170,42 @@ model Goal {
 model Link {
   id         String   @id @default(auto()) @map("_id") @db.ObjectId
   userId     String   @db.ObjectId
-  sourceType String   // NOTE / GOAL / TASK
+  sourceType String   // NOTE / GOAL / TASK / PROJECT
   sourceId   String   @db.ObjectId
-  targetType String   // TRANSACTION / GOAL / TASK / NOTE / LOAN
+  targetType String   // TRANSACTION / GOAL / TASK / NOTE / LOAN / EVENT / PROJECT
   targetId   String   @db.ObjectId
   createdAt  DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, sourceType, sourceId, targetType, targetId])
+}
+
+model Project {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  title       String
+  group       String   @default("General")
+  status      String   @default("PLANNED") // PLANNED / ACTIVE / PAUSED / DONE
+  problem     String?
+  solution    String?
+  features    String[] @default([])
+  techStack   String[] @default([])
+  repoUrl     String?
+  liveUrl     String?
+  notes       String?
+  progress    Int      @default(0)
+  startDate   DateTime?
+  dueDate     DateTime?
+  pinHash     String?
+  secretSalt  String?
+  secretIv    String?
+  secretTag   String?
+  secretData  String?  @db.String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Note {

@@ -9,6 +9,7 @@ export const DEFAULT_EXPENSE_CATEGORIES = [
   "👨‍👩‍👧 Family Support",
   "🏥 Healthcare",
   "📚 Learning (Courses, Books)",
+  "Loan",
   "💸 Miscellaneous",
 ] as const;
 
@@ -16,6 +17,7 @@ export const DEFAULT_INCOME_CATEGORIES = [
   "Salary",
   "Freelance",
   "Side Project",
+  "Loan",
   "Other",
 ] as const;
 

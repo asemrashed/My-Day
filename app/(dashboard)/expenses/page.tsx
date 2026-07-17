@@ -73,6 +73,7 @@ export default async function ExpensesPage() {
 
   const formattedLoans = loans.map((loan) => ({
     id: loan.id,
+    transactionId: loan.transactionId,
     direction: loan.direction,
     personName: loan.personName,
     principal: loan.principal,
