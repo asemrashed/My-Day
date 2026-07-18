@@ -1,6 +1,7 @@
 "use server";
 
 import { auth } from "@/lib/auth";
+import { normalizeAccount } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 
@@ -31,6 +32,15 @@ function getLoanTransactionNote(direction: string, personName: string, note: str
   return [action, personName, note ? `- ${note}` : ""].filter(Boolean).join(" ");
 }
 
+function getRepaymentTransactionType(direction: string) {
+  return direction === "GIVEN" ? "INCOME" : "EXPENSE";
+}
+
+function getRepaymentTransactionNote(direction: string, personName: string, note: string) {
+  const action = direction === "GIVEN" ? "Loan repayment received from" : "Loan repayment paid to";
+  return [action, personName, note ? `- ${note}` : ""].filter(Boolean).join(" ");
+}
+
 async function getLoanOutstanding(loanId: string) {
   const loan = await prisma.loan.findUnique({
     where: { id: loanId },
@@ -55,6 +65,7 @@ export async function createLoan(formData: FormData) {
     const principal = parsePositiveNumber(formData.get("principal"), "Principal");
     const interestRateRaw = String(formData.get("interestRate") || "0");
     const interestRate = interestRateRaw ? parseFloat(interestRateRaw) : 0;
+    const account = normalizeAccount(formData.get("account"));
     const note = String(formData.get("note") || "").trim();
     const dateStr = String(formData.get("date") || "");
 
@@ -75,6 +86,7 @@ export async function createLoan(formData: FormData) {
         type: getLoanTransactionType(direction),
         amount: principal,
         category: LOAN_TRANSACTION_CATEGORY,
+        account,
         note: getLoanTransactionNote(direction, personName, note),
         date: loanDate,
       },
@@ -87,6 +99,7 @@ export async function createLoan(formData: FormData) {
         direction,
         personName,
         principal,
+        account,
         interestRate,
         note: note || null,
         date: loanDate,
@@ -107,6 +120,7 @@ export async function updateLoan(id: string, data: {
   direction: string;
   personName: string;
   principal: string;
+  account?: string;
   interestRate: string;
   note: string;
   date: string;
@@ -140,6 +154,7 @@ export async function updateLoan(id: string, data: {
       type: getLoanTransactionType(data.direction),
       amount: principal,
       category: LOAN_TRANSACTION_CATEGORY,
+      account: normalizeAccount(data.account || current.loan.account),
       note: getLoanTransactionNote(data.direction, data.personName.trim(), data.note.trim()),
       date: loanDate,
     };
@@ -176,6 +191,7 @@ export async function updateLoan(id: string, data: {
         direction: data.direction,
         personName: data.personName.trim(),
         principal,
+        account: normalizeAccount(data.account || current.loan.account),
         interestRate,
         note: data.note.trim() || null,
         date: loanDate,
@@ -184,10 +200,33 @@ export async function updateLoan(id: string, data: {
       include: { payments: true },
     });
 
+    const paymentTransactions = (
+      await Promise.all(
+        loan.payments.map(async (payment) => {
+          if (!payment.transactionId) return null;
+          return prisma.transaction.updateMany({
+            where: { id: payment.transactionId, userId },
+            data: {
+              type: getRepaymentTransactionType(data.direction),
+              note: getRepaymentTransactionNote(
+                data.direction,
+                data.personName.trim(),
+                payment.note || ""
+              ),
+            },
+          }).then(async (result) =>
+            result.count
+              ? prisma.transaction.findUnique({ where: { id: payment.transactionId! } })
+              : null
+          );
+        })
+      )
+    ).filter((item) => item !== null);
+
     revalidatePath("/");
     revalidatePath("/expenses");
     revalidatePath("/loans");
-    return { success: true, loan, transaction };
+    return { success: true, loan, transaction, paymentTransactions };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to update loan" };
   }
@@ -196,16 +235,23 @@ export async function updateLoan(id: string, data: {
 export async function deleteLoan(id: string) {
   try {
     const userId = await getUserId();
-    const loan = await prisma.loan.findUnique({ where: { id } });
+    const loan = await prisma.loan.findUnique({
+      where: { id },
+      include: { payments: true },
+    });
 
     if (!loan || loan.userId !== userId) {
       return { error: "Loan not found" };
     }
 
     await prisma.loan.delete({ where: { id } });
-    if (loan.transactionId) {
+    const transactionIds = [
+      loan.transactionId,
+      ...loan.payments.map((payment) => payment.transactionId),
+    ].filter((transactionId): transactionId is string => Boolean(transactionId));
+    if (transactionIds.length > 0) {
       await prisma.transaction.deleteMany({
-        where: { id: loan.transactionId, userId },
+        where: { id: { in: transactionIds }, userId },
       });
     }
 
@@ -223,6 +269,7 @@ export async function createLoanPayment(formData: FormData) {
     const userId = await getUserId();
     const loanId = String(formData.get("loanId") || "");
     const amount = parsePositiveNumber(formData.get("amount"), "Payment");
+    const account = normalizeAccount(formData.get("account"));
     const note = String(formData.get("note") || "").trim();
     const dateStr = String(formData.get("date") || "");
 
@@ -234,13 +281,32 @@ export async function createLoanPayment(formData: FormData) {
       return { error: "Payment cannot exceed outstanding balance" };
     }
 
+    const paymentDate = dateStr ? new Date(dateStr) : new Date();
+    const transaction = await prisma.transaction.create({
+      data: {
+        userId,
+        type: getRepaymentTransactionType(current.loan.direction),
+        amount,
+        category: LOAN_TRANSACTION_CATEGORY,
+        account,
+        note: getRepaymentTransactionNote(
+          current.loan.direction,
+          current.loan.personName,
+          note
+        ),
+        date: paymentDate,
+      },
+    });
+
     const payment = await prisma.loanPayment.create({
       data: {
         loanId,
         userId,
+        transactionId: transaction.id,
         amount,
+        account,
         note: note || null,
-        date: dateStr ? new Date(dateStr) : new Date(),
+        date: paymentDate,
       },
     });
 
@@ -254,7 +320,7 @@ export async function createLoanPayment(formData: FormData) {
     revalidatePath("/");
     revalidatePath("/expenses");
     revalidatePath("/loans");
-    return { success: true, payment };
+    return { success: true, payment, transaction };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to record repayment" };
   }
@@ -273,6 +339,11 @@ export async function deleteLoanPayment(id: string) {
     }
 
     await prisma.loanPayment.delete({ where: { id } });
+    if (payment.transactionId) {
+      await prisma.transaction.deleteMany({
+        where: { id: payment.transactionId, userId },
+      });
+    }
     await prisma.loan.update({
       where: { id: payment.loanId },
       data: { status: "OPEN" },

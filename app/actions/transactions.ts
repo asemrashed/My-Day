@@ -1,6 +1,7 @@
 "use server";
 
 import { auth } from "@/lib/auth";
+import { normalizeAccount } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 
@@ -12,6 +13,14 @@ async function getUserId() {
   return session.user.id;
 }
 
+async function isLoanManagedTransaction(id: string, userId: string) {
+  const [loan, payment] = await Promise.all([
+    prisma.loan.findFirst({ where: { userId, transactionId: id }, select: { id: true } }),
+    prisma.loanPayment.findFirst({ where: { userId, transactionId: id }, select: { id: true } }),
+  ]);
+  return Boolean(loan || payment);
+}
+
 // Create a new Transaction (Income or Expense)
 export async function createTransaction(formData: FormData) {
   try {
@@ -19,6 +28,7 @@ export async function createTransaction(formData: FormData) {
     const type = formData.get("type") as string; // INCOME or EXPENSE
     const amountStr = formData.get("amount") as string;
     const category = formData.get("category") as string;
+    const account = normalizeAccount(formData.get("account"));
     const note = formData.get("note") as string;
     const dateStr = formData.get("date") as string;
 
@@ -39,6 +49,7 @@ export async function createTransaction(formData: FormData) {
         type,
         amount,
         category,
+        account,
         note,
         date,
       },
@@ -60,13 +71,20 @@ export async function createTransaction(formData: FormData) {
     revalidatePath("/");
     revalidatePath("/expenses");
     return { success: true, transaction };
-  } catch (error: any) {
-    return { error: error.message || "Failed to create transaction" };
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : "Failed to create transaction" };
   }
 }
 
 // Update an existing Transaction
-export async function updateTransaction(id: string, data: any) {
+export async function updateTransaction(id: string, data: {
+  type: string;
+  amount: string;
+  category: string;
+  account: string;
+  note: string;
+  date: string;
+}) {
   try {
     const userId = await getUserId();
 
@@ -76,6 +94,9 @@ export async function updateTransaction(id: string, data: any) {
 
     if (!transaction || transaction.userId !== userId) {
       return { error: "Transaction not found" };
+    }
+    if (await isLoanManagedTransaction(id, userId)) {
+      return { error: "This entry is managed from the Loans section" };
     }
 
     const amount = parseFloat(data.amount);
@@ -89,6 +110,7 @@ export async function updateTransaction(id: string, data: any) {
         type: data.type,
         amount,
         category: data.category,
+        account: normalizeAccount(data.account),
         note: data.note,
         date: data.date ? new Date(data.date) : new Date(),
       },
@@ -97,8 +119,8 @@ export async function updateTransaction(id: string, data: any) {
     revalidatePath("/");
     revalidatePath("/expenses");
     return { success: true, transaction: updated };
-  } catch (error: any) {
-    return { error: error.message || "Failed to update transaction" };
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : "Failed to update transaction" };
   }
 }
 
@@ -114,6 +136,9 @@ export async function deleteTransaction(id: string) {
     if (!transaction || transaction.userId !== userId) {
       return { error: "Transaction not found" };
     }
+    if (await isLoanManagedTransaction(id, userId)) {
+      return { error: "Delete this entry from the Loans section" };
+    }
 
     await prisma.transaction.delete({
       where: { id },
@@ -122,7 +147,7 @@ export async function deleteTransaction(id: string) {
     revalidatePath("/");
     revalidatePath("/expenses");
     return { success: true };
-  } catch (error: any) {
-    return { error: error.message || "Failed to delete transaction" };
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : "Failed to delete transaction" };
   }
 }

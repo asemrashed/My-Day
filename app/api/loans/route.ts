@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { normalizeAccount } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 
 async function getUserId() {
@@ -15,6 +16,15 @@ function getLoanTransactionType(direction: string) {
 
 function getLoanTransactionNote(direction: string, personName: string, note: string) {
   const action = direction === "TAKEN" ? "Loan taken from" : "Loan given to";
+  return [action, personName, note ? `- ${note}` : ""].filter(Boolean).join(" ");
+}
+
+function getRepaymentTransactionType(direction: string) {
+  return direction === "GIVEN" ? "INCOME" : "EXPENSE";
+}
+
+function getRepaymentTransactionNote(direction: string, personName: string, note: string) {
+  const action = direction === "GIVEN" ? "Loan repayment received from" : "Loan repayment paid to";
   return [action, personName, note ? `- ${note}` : ""].filter(Boolean).join(" ");
 }
 
@@ -75,13 +85,33 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Payment cannot exceed outstanding balance" }, { status: 400 });
       }
 
+      const account = normalizeAccount(body.account);
+      const paymentDate = body.date ? new Date(body.date) : new Date();
+      const transaction = await prisma.transaction.create({
+        data: {
+          userId,
+          type: getRepaymentTransactionType(current.loan.direction),
+          amount,
+          category: LOAN_TRANSACTION_CATEGORY,
+          account,
+          note: getRepaymentTransactionNote(
+            current.loan.direction,
+            current.loan.personName,
+            body.note || ""
+          ),
+          date: paymentDate,
+        },
+      });
+
       const payment = await prisma.loanPayment.create({
         data: {
           loanId: body.loanId,
           userId,
+          transactionId: transaction.id,
           amount,
+          account,
           note: body.note || null,
-          date: body.date ? new Date(body.date) : new Date(),
+          date: paymentDate,
         },
       });
 
@@ -89,7 +119,7 @@ export async function POST(req: NextRequest) {
         await prisma.loan.update({ where: { id: body.loanId }, data: { status: "PAID" } });
       }
 
-      return NextResponse.json({ payment }, { status: 201 });
+      return NextResponse.json({ payment, transaction }, { status: 201 });
     }
 
     const principal = parseFloat(body.principal);
@@ -106,12 +136,14 @@ export async function POST(req: NextRequest) {
     }
 
     const loanDate = body.date ? new Date(body.date) : new Date();
+    const account = normalizeAccount(body.account);
     const transaction = await prisma.transaction.create({
       data: {
         userId,
         type: getLoanTransactionType(body.direction),
         amount: principal,
         category: LOAN_TRANSACTION_CATEGORY,
+        account,
         note: getLoanTransactionNote(body.direction, body.personName, body.note || ""),
         date: loanDate,
       },
@@ -124,6 +156,7 @@ export async function POST(req: NextRequest) {
         direction: body.direction,
         personName: body.personName,
         principal,
+        account,
         interestRate,
         note: body.note || null,
         date: loanDate,
@@ -161,6 +194,7 @@ export async function PATCH(req: NextRequest) {
       type: getLoanTransactionType(body.direction),
       amount: principal,
       category: LOAN_TRANSACTION_CATEGORY,
+      account: normalizeAccount(body.account),
       note: getLoanTransactionNote(body.direction, body.personName, body.note || ""),
       date: loanDate,
     };
@@ -197,6 +231,7 @@ export async function PATCH(req: NextRequest) {
         direction: body.direction,
         personName: body.personName,
         principal,
+        account: normalizeAccount(body.account),
         interestRate,
         note: body.note || null,
         date: loanDate,
@@ -205,7 +240,27 @@ export async function PATCH(req: NextRequest) {
       include: { payments: true },
     });
 
-    return NextResponse.json({ loan, transaction });
+    const paymentTransactions = (
+      await Promise.all(
+        loan.payments.map(async (payment) => {
+          if (!payment.transactionId) return null;
+          await prisma.transaction.updateMany({
+            where: { id: payment.transactionId, userId },
+            data: {
+              type: getRepaymentTransactionType(body.direction),
+              note: getRepaymentTransactionNote(
+                body.direction,
+                body.personName,
+                payment.note || ""
+              ),
+            },
+          });
+          return prisma.transaction.findUnique({ where: { id: payment.transactionId } });
+        })
+      )
+    ).filter((item) => item !== null);
+
+    return NextResponse.json({ loan, transaction, paymentTransactions });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update loan" }, { status: 500 });
   }
@@ -231,21 +286,33 @@ export async function DELETE(req: NextRequest) {
       }
 
       await prisma.loanPayment.delete({ where: { id: paymentId } });
+      if (payment.transactionId) {
+        await prisma.transaction.deleteMany({
+          where: { id: payment.transactionId, userId },
+        });
+      }
       await prisma.loan.update({ where: { id: payment.loanId }, data: { status: "OPEN" } });
       return NextResponse.json({ success: true });
     }
 
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-    const loan = await prisma.loan.findUnique({ where: { id } });
+    const loan = await prisma.loan.findUnique({
+      where: { id },
+      include: { payments: true },
+    });
     if (!loan || loan.userId !== userId) {
       return NextResponse.json({ error: "Loan not found" }, { status: 404 });
     }
 
     await prisma.loan.delete({ where: { id } });
-    if (loan.transactionId) {
+    const transactionIds = [
+      loan.transactionId,
+      ...loan.payments.map((payment) => payment.transactionId),
+    ].filter((transactionId): transactionId is string => Boolean(transactionId));
+    if (transactionIds.length > 0) {
       await prisma.transaction.deleteMany({
-        where: { id: loan.transactionId, userId },
+        where: { id: { in: transactionIds }, userId },
       });
     }
     return NextResponse.json({ success: true });

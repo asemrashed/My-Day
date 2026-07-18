@@ -3,123 +3,35 @@
 import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { toggleTaskStatus, deleteTask, updateTask } from "@/app/actions/tasks";
-import FormModal from "@/components/FormModal";
-import { GripVertical, Trash2, Edit2, Clock, RefreshCw } from "lucide-react";
+import { Clock, Edit2, GripVertical, Target, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
+import { deleteTask, toggleTaskStatus } from "@/app/actions/tasks";
+import FormModal from "@/components/FormModal";
+import TaskForm from "@/components/TaskForm";
+import type { GoalOption, TaskView } from "@/lib/task-types";
 
-interface Task {
-  id: string;
-  title: string;
-  description: string | null;
-  dueDate: string | Date | null;
-  priority: string;
-  category: string;
-  status: string;
-  isRecurring: boolean;
-  recurringDays: string[];
-}
-
-interface TaskCardProps {
-  task: Task;
+type Props = {
+  task: TaskView;
+  goals: GoalOption[];
   onRefresh: () => void;
+  compact?: boolean;
+};
+
+function priorityClass(priority: string) {
+  if (priority === "HIGH") return "bg-rose-950/20 text-rose-500 border-rose-500/20";
+  if (priority === "MEDIUM") return "bg-amber-950/20 text-amber-500 border-amber-500/20";
+  return "bg-primary/10 text-primary border-primary/20";
 }
 
-const taskCategories = ["Work", "Personal", "Learning", "Health", "Shopping", "Other"];
-
-export default function TaskCard({ task, onRefresh }: TaskCardProps) {
+export default function TaskCard({ task, goals, onRefresh, compact = false }: Props) {
   const [isEditing, setIsEditing] = useState(false);
-  const [editedTitle, setEditedTitle] = useState(task.title);
-  const [editedDesc, setEditedDesc] = useState(task.description || "");
-  const [editedPriority, setEditedPriority] = useState(task.priority);
-  const [editedCategory, setEditedCategory] = useState(task.category);
-  const [editedDueDate, setEditedDueDate] = useState(
-    task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : ""
-  );
-
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: task.id });
-
+  const sortable = useSortable({ id: task.id, disabled: compact });
   const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
+    opacity: sortable.isDragging ? 0.4 : 1,
   };
-
-  // Toggle checklist status
-  const handleToggle = async () => {
-    try {
-      const res = await toggleTaskStatus(task.id, task.status);
-      if (res.success) {
-        toast.success(task.status === "DONE" ? "Task active again!" : "Task completed! 🎉");
-        onRefresh();
-      } else {
-        toast.error(res.error || "Failed to toggle task");
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Delete task
-  const handleDelete = async () => {
-    if (confirm("Are you sure you want to delete this task?")) {
-      const res = await deleteTask(task.id);
-      if (res.success) {
-        toast.success("Task deleted");
-        onRefresh();
-      } else {
-        toast.error(res.error || "Failed to delete task");
-      }
-    }
-  };
-
-  // Update task
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editedTitle) {
-      toast.error("Title is required");
-      return;
-    }
-
-    const res = await updateTask(task.id, {
-      title: editedTitle,
-      description: editedDesc,
-      priority: editedPriority,
-      category: editedCategory,
-      dueDate: editedDueDate,
-      status: task.status,
-    });
-
-    if (res.success) {
-      toast.success("Task updated");
-      setIsEditing(false);
-      onRefresh();
-    } else {
-      toast.error(res.error || "Failed to update task");
-    }
-  };
-
-  // Priority color formatting helper
-  const getPriorityColor = (p: string) => {
-    switch (p) {
-      case "HIGH":
-        return "bg-rose-950/20 text-rose-500 border border-rose-500/20";
-      case "MEDIUM":
-        return "bg-amber-950/20 text-amber-500 border border-amber-500/20";
-      case "LOW":
-      default:
-        return "bg-primary/10 text-primary border border-primary/20";
-    }
-  };
-
-  // Format date readable
+  const linkedGoal = task.subGoal || task.goal;
   const formattedDate = task.dueDate
     ? new Date(task.dueDate).toLocaleDateString("en-US", {
         month: "short",
@@ -129,159 +41,95 @@ export default function TaskCard({ task, onRefresh }: TaskCardProps) {
       })
     : null;
 
+  const toggle = async () => {
+    const result = await toggleTaskStatus(task.id, task.status);
+    if (!result.success) return toast.error(result.error || "Failed to update task");
+    onRefresh();
+  };
+
+  const remove = async () => {
+    if (!confirm("Are you sure you want to delete this task?")) return;
+    const result = await deleteTask(task.id);
+    if (!result.success) return toast.error(result.error || "Failed to delete task");
+    toast.success("Task deleted");
+    onRefresh();
+  };
+
   return (
     <>
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`app-card-compact flex items-center justify-between gap-4 transition-all duration-300 ${
-        task.status === "DONE" ? "opacity-60 border-primary/20" : ""
-      }`}
-    >
-      {/* Draggable grip and Content */}
-      <div className="flex items-center gap-3 overflow-hidden flex-1">
-        <button
-          {...attributes}
-          {...listeners}
-          className="p-1 rounded hover:bg-muted text-muted-foreground cursor-grab active:cursor-grabbing shrink-0"
-          title="Drag to reorder"
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-
-        {/* Checkbox */}
-        <input
-          type="checkbox"
-          checked={task.status === "DONE"}
-          onChange={handleToggle}
-          className="h-5 w-5 rounded border-border focus:ring-primary accent-primary shrink-0 cursor-pointer"
-        />
-
-        {/* Info */}
-        <div className="overflow-hidden">
-          <h4 className={`text-sm font-semibold truncate ${
-            task.status === "DONE" 
-              ? "line-through text-muted-foreground" 
-              : "text-foreground"
-          }`}>
-            {task.title}
-          </h4>
-          {task.description && (
-            <p className={`text-xs truncate ${
-              task.status === "DONE" ? "text-muted-foreground" : "text-muted-foreground"
-            }`}>
-              {task.description}
-            </p>
+      <div
+        ref={sortable.setNodeRef}
+        style={style}
+        className={`${compact ? "flex items-center px-3 py-2.5 border border-border/70 rounded-xl" : "app-card-compact"} flex items-center justify-between gap-3 ${
+          task.status === "DONE" ? "opacity-60" : ""
+        }`}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {!compact && (
+            <button
+              {...sortable.attributes}
+              {...sortable.listeners}
+              className="p-1 rounded hover:bg-muted text-muted-foreground cursor-grab"
+              title="Drag to reorder"
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
           )}
-
-          {/* Subtags */}
-          <div className="flex flex-wrap gap-2 mt-1.5 items-center">
-            <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
-              getPriorityColor(task.priority)
-            }`}>
-              {task.priority}
-            </span>
-            <span className="text-[9px] font-semibold bg-muted text-muted-foreground border border-border px-1.5 py-0.5 rounded">
-              {task.category}
-            </span>
-            {formattedDate && (
-              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
-                {formattedDate}
-              </span>
-            )}
-            {task.isRecurring && (
-              <span className="text-[9px] font-semibold text-primary flex items-center gap-0.5" title="Recurring Task">
-                <RefreshCw className="h-2.5 w-2.5" />
-                Daily
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-1 shrink-0">
-        <button
-          onClick={() => setIsEditing(true)}
-          className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted active:scale-90 transition-all"
-          title="Edit Task"
-        >
-          <Edit2 className="h-3.5 w-3.5" />
-        </button>
-        <button
-          onClick={handleDelete}
-          className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-90 transition-all"
-          title="Delete Task"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </div>
-    </div>
-
-    <FormModal open={isEditing} onClose={() => setIsEditing(false)} title="Edit Task">
-      <form onSubmit={handleSave} className="space-y-4">
-        <input
-          type="text"
-          required
-          value={editedTitle}
-          onChange={(e) => setEditedTitle(e.target.value)}
-          className="app-input text-xs font-semibold"
-          placeholder="Task title"
-        />
-
-        <textarea
-          value={editedDesc}
-          onChange={(e) => setEditedDesc(e.target.value)}
-          className="app-input text-xs resize-none"
-          placeholder="Description"
-          rows={2}
-        />
-
-        <div className="grid grid-cols-2 gap-3 text-xs">
-          <div>
-            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Priority</label>
-            <select
-              value={editedPriority}
-              onChange={(e) => setEditedPriority(e.target.value)}
-              className="app-input text-xs"
-            >
-              <option value="HIGH">High</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="LOW">Low</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Category</label>
-            <select
-              value={editedCategory}
-              onChange={(e) => setEditedCategory(e.target.value)}
-              className="app-input text-xs"
-            >
-              {taskCategories.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Due Date</label>
           <input
-            type="datetime-local"
-            value={editedDueDate}
-            onChange={(e) => setEditedDueDate(e.target.value)}
-            className="app-input text-xs"
+            type="checkbox"
+            checked={task.status === "DONE"}
+            onChange={toggle}
+            className="h-5 w-5 rounded border-border accent-primary shrink-0 cursor-pointer"
           />
+          <div className="min-w-0 flex-1">
+            <h4 className={`text-sm font-semibold truncate ${task.status === "DONE" ? "line-through text-muted-foreground" : ""}`}>
+              {task.title}
+            </h4>
+            {!compact && task.description && <p className="text-xs text-muted-foreground truncate">{task.description}</p>}
+            <div className="flex flex-wrap items-center gap-2 mt-1.5">
+              <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded border ${priorityClass(task.priority)}`}>
+                {task.priority}
+              </span>
+              {!compact && (
+                <span className="text-[9px] font-semibold bg-muted text-muted-foreground border border-border px-1.5 py-0.5 rounded">
+                  {task.category}
+                </span>
+              )}
+              {formattedDate && !compact && (
+                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> {formattedDate}
+                </span>
+              )}
+              {linkedGoal && (
+                <span className="text-[10px] text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Target className="h-3 w-3" />
+                  {task.subGoal ? `${task.goal?.title}: ${task.subGoal.title}` : linkedGoal.title}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
+        <div className="flex shrink-0">
+          <button onClick={() => setIsEditing(true)} className="p-2 text-muted-foreground hover:text-primary" title="Edit task">
+            <Edit2 className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={remove} className="p-2 text-muted-foreground hover:text-destructive" title="Delete task">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
 
-        <button type="submit" className="app-button-primary w-full px-4 py-2.5 text-xs">
-          Save Changes
-        </button>
-      </form>
-    </FormModal>
+      <FormModal open={isEditing} onClose={() => setIsEditing(false)} title="Edit task">
+        <TaskForm
+          goals={goals}
+          task={task}
+          groupId={task.groupId}
+          onSuccess={() => {
+            setIsEditing(false);
+            onRefresh();
+          }}
+        />
+      </FormModal>
     </>
   );
 }

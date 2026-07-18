@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { createTaskRecord, serializeTask, taskInclude } from "@/lib/task-service";
+import type { Prisma } from "@prisma/client";
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unexpected task error";
+}
 
 // GET /api/tasks - fetch user tasks
 export async function GET(req: NextRequest) {
@@ -13,7 +19,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const filter = searchParams.get("filter");
 
-    let whereClause: any = { userId: session.user.id };
+    const whereClause: Prisma.TaskWhereInput = { userId: session.user.id };
 
     if (filter === "today") {
       const startOfToday = new Date();
@@ -31,11 +37,24 @@ export async function GET(req: NextRequest) {
     const tasks = await prisma.task.findMany({
       where: whereClause,
       orderBy: { order: "asc" },
+      include: taskInclude,
     });
 
-    return NextResponse.json({ tasks });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const groups = await prisma.taskGroup.findMany({
+      where: { userId: session.user.id },
+      orderBy: { groupDate: "desc" },
+    });
+
+    return NextResponse.json({
+      tasks: tasks.map(serializeTask),
+      groups: groups.map((group) => ({
+        id: group.id,
+        title: group.title,
+        groupDate: group.groupDate.toISOString(),
+      })),
+    });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
 
@@ -47,36 +66,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
-    const { title, description, dueDate, priority, category, isRecurring, recurringDays } = body;
-
-    if (!title) {
-      return NextResponse.json({ error: "Title is required" }, { status: 400 });
-    }
-
-    const maxOrderTask = await prisma.task.findFirst({
-      where: { userId: session.user.id },
-      orderBy: { order: "desc" },
-    });
-    const order = maxOrderTask ? maxOrderTask.order + 1 : 0;
-
-    const task = await prisma.task.create({
-      data: {
-        userId: session.user.id,
-        title,
-        description,
-        dueDate: dueDate ? new Date(dueDate) : null,
-        priority: priority || "MEDIUM",
-        category: category || "Work",
-        status: "PENDING",
-        isRecurring: isRecurring || false,
-        recurringDays: recurringDays || [],
-        order,
-      },
-    });
-
-    return NextResponse.json({ task }, { status: 201 });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const task = await createTaskRecord(session.user.id, await req.json());
+    return NextResponse.json({ task: serializeTask(task) }, { status: 201 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }

@@ -32,8 +32,8 @@ export const config = {
      * - api/auth (NextAuth endpoints)
      * - api/tasks, api/events, api/transactions, api/notifications (we can let API routes authorize internally via auth() helper)
      * - _next/static, _next/image (static Next.js assets)
-     * - favicon.ico (favicon)
+     * - favicon and web app manifest assets
      */
-    "/((?!api/auth|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon-192.png|icon-512.png|icon.png).*)",
   ],
 };

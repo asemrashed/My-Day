@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
 import { Toaster } from "react-hot-toast";
-import thryveLogo from "@/app/thryve.png";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -12,10 +11,11 @@ const outfit = Outfit({
 export const metadata: Metadata = {
   title: "ThryveUp | Productivity & Expense Manager",
   description: "Organize your workflow, schedule events, manage expenses, and track loans seamlessly.",
+  manifest: "/manifest.webmanifest",
   icons: {
-    icon: thryveLogo.src,
-    shortcut: thryveLogo.src,
-    apple: thryveLogo.src,
+    icon: "/icon-192.png",
+    shortcut: "/icon-192.png",
+    apple: "/icon-192.png",
   },
 };
 

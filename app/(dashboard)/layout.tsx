@@ -14,9 +14,9 @@ export const metadata: Metadata = {
   title: "ThryveUp | Dashboard",
   description: "Your personal productivity and expense management dashboard.",
   icons: {
-    icon: thryveLogo.src,
-    shortcut: thryveLogo.src,
-    apple: thryveLogo.src,
+    icon: "/icon-192.png",
+    shortcut: "/icon-192.png",
+    apple: "/icon-192.png",
   },
 };
 

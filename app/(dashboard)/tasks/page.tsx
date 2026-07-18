@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import TaskBoard from "@/components/TaskBoard";
 import { redirect } from "next/navigation";
+import { serializeTask, taskInclude } from "@/lib/task-service";
 
 export const dynamic = "force-dynamic";
 
@@ -11,24 +12,28 @@ export default async function TasksPage() {
     redirect("/login");
   }
 
-  // Fetch all tasks for the logged in user
-  const tasks = await prisma.task.findMany({
-    where: { userId: session.user.id },
-    orderBy: { order: "asc" },
-  });
-
-  // Map Decimal or other custom types if necessary, though standard MongoDB types map cleanly
-  const formattedTasks = tasks.map((task) => ({
-    id: task.id,
-    title: task.title,
-    description: task.description,
-    dueDate: task.dueDate ? task.dueDate.toISOString() : null,
-    priority: task.priority,
-    category: task.category,
-    status: task.status,
-    isRecurring: task.isRecurring,
-    recurringDays: task.recurringDays,
-  }));
+  const [tasks, groups, allGoals] = await Promise.all([
+    prisma.task.findMany({
+      where: { userId: session.user.id },
+      orderBy: { order: "asc" },
+      include: taskInclude,
+    }),
+    prisma.taskGroup.findMany({
+      where: { userId: session.user.id },
+      orderBy: { groupDate: "desc" },
+    }),
+    prisma.goal.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, title: true, period: true, parentGoalId: true },
+    }),
+  ]);
+  const goals = allGoals
+    .filter((goal) => !goal.parentGoalId)
+    .map((goal) => ({
+      ...goal,
+      subGoals: allGoals.filter((candidate) => candidate.parentGoalId === goal.id),
+    }));
 
   return (
     <div className="space-y-6">
@@ -41,7 +46,15 @@ export default async function TasksPage() {
         </p>
       </div>
 
-      <TaskBoard initialTasks={formattedTasks} />
+      <TaskBoard
+        initialTasks={tasks.map(serializeTask)}
+        initialGroups={groups.map((group) => ({
+          id: group.id,
+          title: group.title,
+          groupDate: group.groupDate.toISOString(),
+        }))}
+        goals={goals}
+      />
     </div>
   );
 }

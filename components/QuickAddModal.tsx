@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
-import { createTask } from "@/app/actions/tasks";
 import { createTransaction } from "@/app/actions/transactions";
 import { getCategories } from "@/app/actions/categories";
 import {
@@ -11,10 +10,12 @@ import {
 } from "@/lib/categories";
 import CategorySelect from "@/components/CategorySelect";
 import DateInput from "@/components/DateInput";
+import { ACCOUNT_METHODS } from "@/lib/finance";
 import { Plus, X, CheckSquare, DollarSign, Target, FileText } from "lucide-react";
 import toast from "react-hot-toast";
+import TaskForm from "@/components/TaskForm";
+import type { GoalOption } from "@/lib/task-types";
 
-const taskCategories = ["Work", "Personal", "Learning", "Health", "Shopping", "Other"];
 const noteCategories = ["Inbox", "Personal", "Work", "Finance", "Dev", "Other"];
 
 export default function QuickAddModal() {
@@ -22,12 +23,7 @@ export default function QuickAddModal() {
   const [activeModal, setActiveModal] = useState<"none" | "task" | "transaction" | "goal" | "note">("none");
   const [isPending, startTransition] = useTransition();
 
-  // Task form states
-  const [taskTitle, setTaskTitle] = useState("");
-  const [taskDesc, setTaskDesc] = useState("");
-  const [taskDueDate, setTaskDueDate] = useState("");
-  const [taskPriority, setTaskPriority] = useState("MEDIUM");
-  const [taskCategory, setTaskCategory] = useState("Work");
+  const [taskGoals, setTaskGoals] = useState<GoalOption[]>([]);
 
   // Transaction form states
   const [txType, setTxType] = useState("EXPENSE");
@@ -35,6 +31,7 @@ export default function QuickAddModal() {
   const [expenseCategories, setExpenseCategories] = useState<string[]>([...DEFAULT_EXPENSE_CATEGORIES]);
   const [incomeCategories, setIncomeCategories] = useState<string[]>([...DEFAULT_INCOME_CATEGORIES]);
   const [txCategory, setTxCategory] = useState<string>(DEFAULT_EXPENSE_CATEGORIES[0]);
+  const [txAccount, setTxAccount] = useState("CASH");
   const [txNote, setTxNote] = useState("");
   const [txDate, setTxDate] = useState(new Date().toISOString().split("T")[0]);
 
@@ -54,6 +51,19 @@ export default function QuickAddModal() {
       if (res.expense) setExpenseCategories(res.expense);
       if (res.income) setIncomeCategories(res.income);
     });
+    fetch("/api/goals")
+      .then((response) => response.json())
+      .then((items) => {
+        if (!Array.isArray(items)) return;
+        setTaskGoals(
+          items
+            .filter((goal: GoalOption) => !goal.parentGoalId)
+            .map((goal: GoalOption) => ({
+              ...goal,
+              subGoals: items.filter((candidate: GoalOption) => candidate.parentGoalId === goal.id),
+            }))
+        );
+      });
   }, []);
 
   const handleCategoryAdded = (name: string, type: CategoryType) => {
@@ -74,38 +84,6 @@ export default function QuickAddModal() {
     }
   };
 
-  const handleTaskSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!taskTitle) {
-      toast.error("Task title is required");
-      return;
-    }
-
-    startTransition(async () => {
-      const formData = new FormData();
-      formData.append("title", taskTitle);
-      formData.append("description", taskDesc);
-      formData.append("dueDate", taskDueDate);
-      formData.append("priority", taskPriority);
-      formData.append("category", taskCategory);
-
-      const res = await createTask(formData);
-      if (res.success) {
-        toast.success("Task added successfully!");
-        // Reset and close
-        setTaskTitle("");
-        setTaskDesc("");
-        setTaskDueDate("");
-        setTaskPriority("MEDIUM");
-        setTaskCategory("Work");
-        setActiveModal("none");
-        setIsOpen(false);
-      } else {
-        toast.error(res.error || "Failed to add task");
-      }
-    });
-  };
-
   const handleTxSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!txAmount || parseFloat(txAmount) <= 0) {
@@ -118,6 +96,7 @@ export default function QuickAddModal() {
       formData.append("type", txType);
       formData.append("amount", txAmount);
       formData.append("category", txCategory);
+      formData.append("account", txAccount);
       formData.append("note", txNote);
       formData.append("date", txDate);
 
@@ -126,6 +105,7 @@ export default function QuickAddModal() {
         toast.success(`${txType === "INCOME" ? "Income" : "Expense"} added successfully!`);
         // Reset and close
         setTxAmount("");
+        setTxAccount("CASH");
         setTxNote("");
         setTxDate(new Date().toISOString().split("T")[0]);
         setActiveModal("none");
@@ -295,93 +275,17 @@ export default function QuickAddModal() {
 
             {/* Render Task Form */}
             {activeModal === "task" && (
-              <form onSubmit={handleTaskSubmit} className="space-y-4">
-                <h3 className="text-xl font-bold text-card-foreground mb-2">Create New Task</h3>
-
-                <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
-                    Task Title
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={taskTitle}
-                    onChange={(e) => setTaskTitle(e.target.value)}
-                    placeholder="e.g. Code auth flow"
-                    className="app-input px-4 py-2.5"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
-                    Description (Optional)
-                  </label>
-                  <textarea
-                    value={taskDesc}
-                    onChange={(e) => setTaskDesc(e.target.value)}
-                    placeholder="Provide details about the task..."
-                    rows={3}
-                    className="app-input px-4 py-2.5 resize-none"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
-                      Due Date & Time
-                    </label>
-                    <input
-                      type="datetime-local"
-                      value={taskDueDate}
-                      onChange={(e) => setTaskDueDate(e.target.value)}
-                      className="app-input px-4 py-2.5 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
-                      Priority
-                    </label>
-                    <select
-                      value={taskPriority}
-                      onChange={(e) => setTaskPriority(e.target.value)}
-                      className="app-input px-4 py-2.5 text-sm"
-                    >
-                      <option value="HIGH">🔴 High</option>
-                      <option value="MEDIUM">🟡 Medium</option>
-                      <option value="LOW">🔵 Low</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
-                    Category
-                  </label>
-                  <select
-                    value={taskCategory}
-                    onChange={(e) => setTaskCategory(e.target.value)}
-                    className="app-input px-4 py-2.5 text-sm"
-                  >
-                    {taskCategories.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isPending}
-                  className="app-button-primary w-full py-3 px-4 flex items-center justify-center gap-2 mt-4"
-                >
-                  {isPending ? (
-                    <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                  ) : (
-                    "Create Task"
-                  )}
-                </button>
-              </form>
+              <div className="space-y-4">
+                <h3 className="text-xl font-bold text-card-foreground">Create New Task</h3>
+                <TaskForm
+                  goals={taskGoals}
+                  onSuccess={() => {
+                    window.dispatchEvent(new Event("tasks:changed"));
+                    setActiveModal("none");
+                    setIsOpen(false);
+                  }}
+                />
+              </div>
             )}
 
             {/* Render Transaction Form */}
@@ -441,7 +345,7 @@ export default function QuickAddModal() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <CategorySelect
                     type={txType as CategoryType}
                     value={txCategory}
@@ -450,6 +354,20 @@ export default function QuickAddModal() {
                     onCategoryAdded={handleCategoryAdded}
                     onCategoryDeleted={handleCategoryDeleted}
                   />
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                      Account
+                    </label>
+                    <select
+                      value={txAccount}
+                      onChange={(event) => setTxAccount(event.target.value)}
+                      className="app-input px-4 py-2.5 text-sm"
+                    >
+                      {ACCOUNT_METHODS.map((method) => (
+                        <option key={method.value} value={method.value}>{method.label}</option>
+                      ))}
+                    </select>
+                  </div>
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
                       Transaction Date

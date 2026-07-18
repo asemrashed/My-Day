@@ -21,20 +21,38 @@ import FormModal from "@/components/FormModal";
 import CategorySelect from "@/components/CategorySelect";
 import CategoryManager from "@/components/CategoryManager";
 import DateInput from "@/components/DateInput";
-import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
+import { ACCOUNT_METHODS, getAccountLabel } from "@/lib/finance";
 import {
-  Plus, Search, Trash2, Edit2, X, TrendingUp, TrendingDown, DollarSign,
+  addDays,
+  addMonths,
+  differenceInCalendarDays,
+  endOfDay,
+  endOfMonth,
+  endOfWeek,
+  endOfYear,
+  format,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+  startOfYear,
+  subMonths,
+} from "date-fns";
+import {
+  Plus, Search, Trash2, Edit2, TrendingUp, TrendingDown, DollarSign,
   Banknote, HandCoins, ReceiptText, Pencil, Scale, ChevronLeft, ChevronRight
 } from "lucide-react";
 import toast from "react-hot-toast";
 
 const PAGE_SIZE = 10;
+const LOAN_PAGE_SIZE = 15;
+type DatePeriod = "all" | "today" | "week" | "month" | "year" | "custom";
 
 interface Transaction {
   id: string;
   type: string;
   amount: number;
   category: string;
+  account: string;
   note: string | null;
   date: string;
 }
@@ -55,6 +73,7 @@ interface ServerTransaction {
   type: string;
   amount: number;
   category: string;
+  account: string | null;
   note: string | null;
   date: string | Date;
 }
@@ -66,7 +85,9 @@ interface TransactionResult {
 
 interface LoanPayment {
   id: string;
+  transactionId: string | null;
   amount: number;
+  account: string;
   note: string | null;
   date: string;
 }
@@ -77,6 +98,7 @@ interface Loan {
   direction: string;
   personName: string;
   principal: number;
+  account: string;
   interestRate: number;
   note: string | null;
   status: string;
@@ -110,6 +132,7 @@ export default function ExpenseDashboard({
 
   // Expenses State
   const [transactions, setTransactions] = useState<Transaction[]>(initialTx);
+  const [loans, setLoans] = useState<Loan[]>(initialLoans);
   const [showForm, setShowForm] = useState(false);
   const [txType, setTxType] = useState("EXPENSE");
   const [amount, setAmount] = useState("");
@@ -118,11 +141,14 @@ export default function ExpenseDashboard({
   const [expenseCategories, setExpenseCategories] = useState<string[]>([...DEFAULT_EXPENSE_CATEGORIES]);
   const [incomeCategories, setIncomeCategories] = useState<string[]>([...DEFAULT_INCOME_CATEGORIES]);
   const [category, setCategory] = useState<string>(DEFAULT_EXPENSE_CATEGORIES[0]);
+  const [account, setAccount] = useState("CASH");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
+  const [filterAccount, setFilterAccount] = useState("all");
+  const [datePeriod, setDatePeriod] = useState<DatePeriod>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
@@ -149,6 +175,7 @@ export default function ExpenseDashboard({
 
   const toClientTransaction = (transaction: ServerTransaction): Transaction => ({
     ...transaction,
+    account: transaction.account || "CASH",
     date: transaction.date instanceof Date ? transaction.date.toISOString() : String(transaction.date),
   });
 
@@ -161,34 +188,186 @@ export default function ExpenseDashboard({
     );
   };
 
+  const takenLoanTransactionIds = useMemo(
+    () =>
+      new Set(
+        loans
+          .filter((loan) => loan.direction === "TAKEN" && loan.transactionId)
+          .map((loan) => loan.transactionId as string)
+      ),
+    [loans]
+  );
+  const loanTakenLedgerIds = useMemo(
+    () =>
+      new Set(
+        loans
+          .filter((loan) => loan.direction === "TAKEN")
+          .flatMap((loan) => [
+            ...(loan.transactionId ? [loan.transactionId] : []),
+            ...loan.payments.flatMap((payment) =>
+              payment.transactionId ? [payment.transactionId] : []
+            ),
+          ])
+      ),
+    [loans]
+  );
+  const loanGivenLedgerIds = useMemo(
+    () =>
+      new Set(
+        loans
+          .filter((loan) => loan.direction === "GIVEN")
+          .flatMap((loan) => [
+            ...(loan.transactionId ? [loan.transactionId] : []),
+            ...loan.payments.flatMap((payment) =>
+              payment.transactionId ? [payment.transactionId] : []
+            ),
+          ])
+      ),
+    [loans]
+  );
   const currentTotalIncome = useMemo(
-    () => transactions.filter((t) => t.type === "INCOME").reduce((sum, t) => sum + t.amount, 0),
-    [transactions]
+    () =>
+      transactions
+        .filter(
+          (transaction) =>
+            transaction.type === "INCOME" && !takenLoanTransactionIds.has(transaction.id)
+        )
+        .reduce((sum, transaction) => sum + transaction.amount, 0),
+    [transactions, takenLoanTransactionIds]
   );
   const currentTotalExpense = useMemo(
     () => transactions.filter((t) => t.type === "EXPENSE").reduce((sum, t) => sum + t.amount, 0),
     [transactions]
   );
-  const currentMonthlyData = useMemo(() => {
+  const balance = useMemo(
+    () =>
+      transactions.reduce(
+        (sum, transaction) =>
+          sum + (transaction.type === "INCOME" ? transaction.amount : -transaction.amount),
+        0
+      ),
+    [transactions]
+  );
+  const selectedDateRange = useMemo(() => {
     const today = new Date();
-    return Array.from({ length: 6 }, (_, index) => {
-      const monthDate = subMonths(today, 5 - index);
-      const start = startOfMonth(monthDate);
-      const end = endOfMonth(monthDate);
-      const monthTx = transactions.filter((t) => {
-        const txDate = new Date(t.date);
-        return txDate >= start && txDate <= end;
-      });
 
+    if (datePeriod === "today") {
+      return { start: startOfDay(today), end: endOfDay(today) };
+    }
+    if (datePeriod === "week") {
       return {
-        month: format(monthDate, "MMM yy"),
-        income: monthTx.filter((t) => t.type === "INCOME").reduce((sum, t) => sum + t.amount, 0),
-        expense: monthTx.filter((t) => t.type === "EXPENSE").reduce((sum, t) => sum + t.amount, 0),
+        start: startOfWeek(today, { weekStartsOn: 1 }),
+        end: endOfWeek(today, { weekStartsOn: 1 }),
       };
+    }
+    if (datePeriod === "month") {
+      return { start: startOfMonth(today), end: endOfMonth(today) };
+    }
+    if (datePeriod === "year") {
+      return { start: startOfYear(today), end: endOfYear(today) };
+    }
+    if (datePeriod === "custom") {
+      return {
+        start: dateFrom ? startOfDay(new Date(`${dateFrom}T00:00:00`)) : null,
+        end: dateTo ? endOfDay(new Date(`${dateTo}T00:00:00`)) : null,
+      };
+    }
+    return { start: null, end: null };
+  }, [datePeriod, dateFrom, dateTo]);
+
+  const periodTransactions = useMemo(
+    () =>
+      transactions.filter((transaction) => {
+        const transactionDate = new Date(transaction.date);
+        const matchesStart =
+          !selectedDateRange.start || transactionDate >= selectedDateRange.start;
+        const matchesEnd = !selectedDateRange.end || transactionDate <= selectedDateRange.end;
+        return matchesStart && matchesEnd;
+      }),
+    [transactions, selectedDateRange]
+  );
+
+  const currentMonthlyData = useMemo(() => {
+    const aggregate = (start: Date, end: Date, month: string) => {
+      const bucket = periodTransactions.filter((transaction) => {
+        const transactionDate = new Date(transaction.date);
+        return transactionDate >= start && transactionDate <= end;
+      });
+      return {
+        month,
+        income: bucket
+          .filter(
+            (transaction) =>
+              transaction.type === "INCOME" &&
+              !takenLoanTransactionIds.has(transaction.id)
+          )
+          .reduce((sum, transaction) => sum + transaction.amount, 0),
+        expense: bucket
+          .filter((transaction) => transaction.type === "EXPENSE")
+          .reduce((sum, transaction) => sum + transaction.amount, 0),
+      };
+    };
+
+    const today = new Date();
+    if (datePeriod === "today") {
+      return [aggregate(startOfDay(today), endOfDay(today), "Today")];
+    }
+    if (datePeriod === "week") {
+      const weekStart = startOfWeek(today, { weekStartsOn: 1 });
+      return Array.from({ length: 7 }, (_, index) => {
+        const day = addDays(weekStart, index);
+        return aggregate(startOfDay(day), endOfDay(day), format(day, "EEE"));
+      });
+    }
+    if (datePeriod === "month") {
+      const monthStart = startOfMonth(today);
+      const days = differenceInCalendarDays(endOfMonth(today), monthStart) + 1;
+      return Array.from({ length: days }, (_, index) => {
+        const day = addDays(monthStart, index);
+        return aggregate(startOfDay(day), endOfDay(day), format(day, "d"));
+      });
+    }
+    if (datePeriod === "year") {
+      const yearStart = startOfYear(today);
+      return Array.from({ length: 12 }, (_, index) => {
+        const month = addMonths(yearStart, index);
+        return aggregate(startOfMonth(month), endOfMonth(month), format(month, "MMM"));
+      });
+    }
+    if (
+      datePeriod === "custom" &&
+      selectedDateRange.start &&
+      selectedDateRange.end
+    ) {
+      if (selectedDateRange.end < selectedDateRange.start) return [];
+      const days =
+        differenceInCalendarDays(selectedDateRange.end, selectedDateRange.start) + 1;
+      if (days <= 31) {
+        return Array.from({ length: days }, (_, index) => {
+          const day = addDays(selectedDateRange.start!, index);
+          return aggregate(startOfDay(day), endOfDay(day), format(day, "MMM d"));
+        });
+      }
+
+      const buckets: MonthlyData[] = [];
+      let month = startOfMonth(selectedDateRange.start);
+      while (month <= selectedDateRange.end) {
+        buckets.push(
+          aggregate(startOfMonth(month), endOfMonth(month), format(month, "MMM yy"))
+        );
+        month = addMonths(month, 1);
+      }
+      return buckets;
+    }
+
+    return Array.from({ length: 6 }, (_, index) => {
+      const month = subMonths(today, 5 - index);
+      return aggregate(startOfMonth(month), endOfMonth(month), format(month, "MMM yy"));
     });
-  }, [transactions]);
+  }, [datePeriod, periodTransactions, selectedDateRange, takenLoanTransactionIds]);
+
   const currentCategoryData = useMemo(() => {
-    const categories = transactions
+    const categories = periodTransactions
       .filter((t) => t.type === "EXPENSE")
       .reduce<Record<string, number>>((acc, transaction) => {
         acc[transaction.category] = (acc[transaction.category] || 0) + transaction.amount;
@@ -198,7 +377,7 @@ export default function ExpenseDashboard({
     return Object.entries(categories)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [transactions]);
+  }, [periodTransactions]);
 
   const handleCategoryAdded = (name: string, type: CategoryType, item?: CategoryItem) => {
     if (type === "EXPENSE") {
@@ -232,21 +411,30 @@ export default function ExpenseDashboard({
   };
 
   // Loans State
-  const [loans, setLoans] = useState<Loan[]>(initialLoans);
-  const [statusFilter, setStatusFilter] = useState("OPEN");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [loanTypeFilter, setLoanTypeFilter] = useState("all");
+  const [loanAccountFilter, setLoanAccountFilter] = useState("all");
+  const [loanPersonSearch, setLoanPersonSearch] = useState("");
+  const [loanDatePeriod, setLoanDatePeriod] = useState<DatePeriod>("all");
+  const [loanDateFrom, setLoanDateFrom] = useState("");
+  const [loanDateTo, setLoanDateTo] = useState("");
+  const [loanPage, setLoanPage] = useState(1);
   const [showLoanForm, setShowLoanForm] = useState(false);
   const [editingLoanId, setEditingLoanId] = useState<string | null>(null);
   const [loanDirection, setLoanDirection] = useState("GIVEN");
   const [personName, setPersonName] = useState("");
   const [principal, setPrincipal] = useState("");
+  const [loanAccount, setLoanAccount] = useState("CASH");
   const [interestRate, setInterestRate] = useState("0");
   const [loanNote, setLoanNote] = useState("");
   const [loanDate, setLoanDate] = useState(new Date().toISOString().split("T")[0]);
-  const [paymentAmounts, setPaymentAmounts] = useState<Record<string, string>>({});
-  const [paymentNotes, setPaymentNotes] = useState<Record<string, string>>({});
-  const [paymentDates, setPaymentDates] = useState<Record<string, string>>({});
-
-  const balance = currentTotalIncome - currentTotalExpense;
+  const [repayingLoanId, setRepayingLoanId] = useState<string | null>(null);
+  const [repaymentAmount, setRepaymentAmount] = useState("");
+  const [repaymentNote, setRepaymentNote] = useState("");
+  const [repaymentDate, setRepaymentDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
+  const [repaymentAccount, setRepaymentAccount] = useState("CASH");
 
   const loanTotals = useMemo(() => {
     return loans.reduce(
@@ -277,9 +465,95 @@ export default function ExpenseDashboard({
     );
   }, [loans]);
 
-  const filteredLoans = loans.filter((loan) => statusFilter === "all" || loan.status === statusFilter);
-  const loanHistory = useMemo(
-    () => [...loans].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+  const loanDateRange = useMemo(() => {
+    const today = new Date();
+    if (loanDatePeriod === "today") {
+      return { start: startOfDay(today), end: endOfDay(today) };
+    }
+    if (loanDatePeriod === "week") {
+      return {
+        start: startOfWeek(today, { weekStartsOn: 1 }),
+        end: endOfWeek(today, { weekStartsOn: 1 }),
+      };
+    }
+    if (loanDatePeriod === "month") {
+      return { start: startOfMonth(today), end: endOfMonth(today) };
+    }
+    if (loanDatePeriod === "year") {
+      return { start: startOfYear(today), end: endOfYear(today) };
+    }
+    if (loanDatePeriod === "custom") {
+      return {
+        start: loanDateFrom ? startOfDay(new Date(`${loanDateFrom}T00:00:00`)) : null,
+        end: loanDateTo ? endOfDay(new Date(`${loanDateTo}T00:00:00`)) : null,
+      };
+    }
+    return { start: null, end: null };
+  }, [loanDatePeriod, loanDateFrom, loanDateTo]);
+  const filteredLoans = useMemo(
+    () =>
+      [...loans]
+        .filter((loan) => {
+          const loanDay = new Date(loan.date);
+          const matchesStatus = statusFilter === "all" || loan.status === statusFilter;
+          const matchesType =
+            loanTypeFilter === "all" || loan.direction === loanTypeFilter;
+          const matchesAccount =
+            loanAccountFilter === "all" || loan.account === loanAccountFilter;
+          const matchesPerson =
+            !loanPersonSearch ||
+            loan.personName.toLowerCase().includes(loanPersonSearch.toLowerCase());
+          const matchesStart = !loanDateRange.start || loanDay >= loanDateRange.start;
+          const matchesEnd = !loanDateRange.end || loanDay <= loanDateRange.end;
+          return (
+            matchesStatus &&
+            matchesType &&
+            matchesAccount &&
+            matchesPerson &&
+            matchesStart &&
+            matchesEnd
+          );
+        })
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [
+      loans,
+      statusFilter,
+      loanTypeFilter,
+      loanAccountFilter,
+      loanPersonSearch,
+      loanDateRange,
+    ]
+  );
+  const loanTotalPages = Math.max(1, Math.ceil(filteredLoans.length / LOAN_PAGE_SIZE));
+  const currentLoanPage = Math.min(loanPage, loanTotalPages);
+  const paginatedLoans = useMemo(() => {
+    const start = (currentLoanPage - 1) * LOAN_PAGE_SIZE;
+    return filteredLoans.slice(start, start + LOAN_PAGE_SIZE);
+  }, [filteredLoans, currentLoanPage]);
+  const repayingLoan = loans.find((loan) => loan.id === repayingLoanId) || null;
+
+  useEffect(() => {
+    setLoanPage(1);
+  }, [
+    statusFilter,
+    loanTypeFilter,
+    loanAccountFilter,
+    loanPersonSearch,
+    loanDatePeriod,
+    loanDateFrom,
+    loanDateTo,
+  ]);
+
+  const linkedLoanTransactionIds = useMemo(
+    () =>
+      new Set(
+        loans.flatMap((loan) => [
+          ...(loan.transactionId ? [loan.transactionId] : []),
+          ...loan.payments.flatMap((payment) =>
+            payment.transactionId ? [payment.transactionId] : []
+          ),
+        ])
+      ),
     [loans]
   );
 
@@ -293,11 +567,22 @@ export default function ExpenseDashboard({
 
     startTransition(async () => {
       if (editingId) {
-        const res = await updateTransaction(editingId, { type: txType, amount, category, note, date });
+        const res = await updateTransaction(editingId, {
+          type: txType,
+          amount,
+          category,
+          account,
+          note,
+          date,
+        });
         if (res.success) {
           toast.success("Transaction updated!");
           setTransactions((prev) =>
-            prev.map((t) => t.id === editingId ? { ...t, type: txType, amount: parseFloat(amount), category, note, date } : t)
+            prev.map((t) =>
+              t.id === editingId
+                ? { ...t, type: txType, amount: parseFloat(amount), category, account, note, date }
+                : t
+            )
           );
           resetForm();
         } else {
@@ -308,6 +593,7 @@ export default function ExpenseDashboard({
         formData.append("type", txType);
         formData.append("amount", amount);
         formData.append("category", category);
+        formData.append("account", account);
         formData.append("note", note);
         formData.append("date", date);
 
@@ -329,6 +615,7 @@ export default function ExpenseDashboard({
 
   const resetForm = () => {
     setAmount("");
+    setAccount("CASH");
     setNote("");
     setDate(new Date().toISOString().split("T")[0]);
     setEditingId(null);
@@ -340,6 +627,7 @@ export default function ExpenseDashboard({
     setTxType(tx.type);
     setAmount(String(tx.amount));
     setCategory(tx.category);
+    setAccount(tx.account);
     setNote(tx.note || "");
     setDate(tx.date.slice(0, 10));
     setShowForm(true);
@@ -362,6 +650,7 @@ export default function ExpenseDashboard({
     setLoanDirection("GIVEN");
     setPersonName("");
     setPrincipal("");
+    setLoanAccount("CASH");
     setInterestRate("0");
     setLoanNote("");
     setLoanDate(new Date().toISOString().split("T")[0]);
@@ -373,6 +662,7 @@ export default function ExpenseDashboard({
     setLoanDirection(loan.direction);
     setPersonName(loan.personName);
     setPrincipal(String(loan.principal));
+    setLoanAccount(loan.account);
     setInterestRate(String(loan.interestRate));
     setLoanNote(loan.note || "");
     setLoanDate(loan.date.slice(0, 10));
@@ -388,6 +678,7 @@ export default function ExpenseDashboard({
           direction: loanDirection,
           personName,
           principal,
+          account: loanAccount,
           interestRate,
           note: loanNote,
           date: loanDate,
@@ -398,14 +689,19 @@ export default function ExpenseDashboard({
           if (res.transaction) {
             upsertTransaction(res.transaction);
           }
+          res.paymentTransactions?.forEach((transaction) => {
+            if (transaction) upsertTransaction(transaction);
+          });
           setLoans((prev) =>
             prev.map((l) =>
               l.id === editingLoanId
                 ? {
                     ...res.loan,
+                    account: res.loan.account || "CASH",
                     date: res.loan.date instanceof Date ? res.loan.date.toISOString() : String(res.loan.date),
                     payments: res.loan.payments.map((p) => ({
                       ...p,
+                      account: p.account || "CASH",
                       date: p.date instanceof Date ? p.date.toISOString() : String(p.date),
                     })),
                   }
@@ -423,6 +719,7 @@ export default function ExpenseDashboard({
       formData.append("direction", loanDirection);
       formData.append("personName", personName);
       formData.append("principal", principal);
+      formData.append("account", loanAccount);
       formData.append("interestRate", interestRate);
       formData.append("note", loanNote);
       formData.append("date", loanDate);
@@ -436,6 +733,7 @@ export default function ExpenseDashboard({
         setLoans((prev) => [
           {
             ...res.loan,
+            account: res.loan.account || "CASH",
             date: res.loan.date instanceof Date ? res.loan.date.toISOString() : String(res.loan.date),
             payments: [],
           },
@@ -457,8 +755,17 @@ export default function ExpenseDashboard({
       if (res.success) {
         toast.success("Loan deleted");
         setLoans((prev) => prev.filter((l) => l.id !== id));
-        if (loanToDelete?.transactionId) {
-          setTransactions((prev) => prev.filter((transaction) => transaction.id !== loanToDelete.transactionId));
+        if (repayingLoanId === id) setRepayingLoanId(null);
+        const transactionIds = new Set([
+          ...(loanToDelete?.transactionId ? [loanToDelete.transactionId] : []),
+          ...(loanToDelete?.payments.flatMap((payment) =>
+            payment.transactionId ? [payment.transactionId] : []
+          ) || []),
+        ]);
+        if (transactionIds.size > 0) {
+          setTransactions((prev) =>
+            prev.filter((transaction) => !transactionIds.has(transaction.id))
+          );
         }
       } else {
         toast.error(res.error || "Failed to delete loan");
@@ -466,24 +773,48 @@ export default function ExpenseDashboard({
     });
   };
 
-  const handlePayment = (loan: Loan) => {
+  const openRepaymentModal = (loan: Loan) => {
+    setRepayingLoanId(loan.id);
+    setRepaymentAmount("");
+    setRepaymentNote("");
+    setRepaymentDate(new Date().toISOString().split("T")[0]);
+    setRepaymentAccount(loan.account || "CASH");
+  };
+
+  const closeRepaymentModal = () => {
+    setRepayingLoanId(null);
+    setRepaymentAmount("");
+    setRepaymentNote("");
+    setRepaymentDate(new Date().toISOString().split("T")[0]);
+    setRepaymentAccount("CASH");
+  };
+
+  const handlePayment = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!repayingLoan) return;
+
     startTransition(async () => {
       const formData = new FormData();
-      formData.append("loanId", loan.id);
-      formData.append("amount", paymentAmounts[loan.id] || "");
-      formData.append("note", paymentNotes[loan.id] || "");
-      formData.append("date", paymentDates[loan.id] || new Date().toISOString().split("T")[0]);
+      formData.append("loanId", repayingLoan.id);
+      formData.append("amount", repaymentAmount);
+      formData.append("account", repaymentAccount);
+      formData.append("note", repaymentNote);
+      formData.append("date", repaymentDate);
 
       const res = await createLoanPayment(formData);
       if (res.success && res.payment) {
         toast.success("Repayment recorded");
+        if (res.transaction) {
+          upsertTransaction(res.transaction);
+        }
         const payment = {
           ...res.payment,
+          account: res.payment.account || "CASH",
           date: res.payment.date instanceof Date ? res.payment.date.toISOString() : String(res.payment.date),
         };
         setLoans((prev) =>
           prev.map((item) => {
-            if (item.id !== loan.id) return item;
+            if (item.id !== repayingLoan.id) return item;
             const payments = [payment, ...item.payments];
             const paid = payments.reduce((sum, entry) => sum + entry.amount, 0);
             return {
@@ -493,8 +824,8 @@ export default function ExpenseDashboard({
             };
           })
         );
-        setPaymentAmounts((prev) => ({ ...prev, [loan.id]: "" }));
-        setPaymentNotes((prev) => ({ ...prev, [loan.id]: "" }));
+        setRepaymentAmount("");
+        setRepaymentNote("");
       } else {
         toast.error(res.error || "Failed to record repayment");
       }
@@ -502,6 +833,9 @@ export default function ExpenseDashboard({
   };
 
   const handleDeletePayment = (loanId: string, paymentId: string) => {
+    const paymentToDelete = loans
+      .find((loan) => loan.id === loanId)
+      ?.payments.find((payment) => payment.id === paymentId);
     startTransition(async () => {
       const res = await deleteLoanPayment(paymentId);
       if (res.success) {
@@ -517,6 +851,11 @@ export default function ExpenseDashboard({
               : l
           )
         );
+        if (paymentToDelete?.transactionId) {
+          setTransactions((prev) =>
+            prev.filter((transaction) => transaction.id !== paymentToDelete.transactionId)
+          );
+        }
       } else {
         toast.error(res.error || "Failed to delete repayment");
       }
@@ -524,21 +863,33 @@ export default function ExpenseDashboard({
   };
 
   const filtered = useMemo(() => {
-    return transactions.filter((t) => {
-      const matchesType = filterType === "all" || t.type === filterType;
-      const matchesCategory = filterCategory === "all" || t.category === filterCategory;
+    return periodTransactions.filter((t) => {
+      const matchesType =
+        filterType === "all" ||
+        (filterType === "LOAN_TAKEN" && loanTakenLedgerIds.has(t.id)) ||
+        (filterType === "LOAN_GIVEN" && loanGivenLedgerIds.has(t.id)) ||
+        (t.type === filterType &&
+          !loanTakenLedgerIds.has(t.id) &&
+          !loanGivenLedgerIds.has(t.id));
+      const matchesCategory =
+        filterCategory === "all" || t.category === filterCategory;
+      const matchesAccount = filterAccount === "all" || t.account === filterAccount;
       const matchesSearch =
         !search ||
         t.category.toLowerCase().includes(search.toLowerCase()) ||
         (t.note && t.note.toLowerCase().includes(search.toLowerCase()));
 
-      const txDay = t.date.slice(0, 10);
-      const matchesFrom = !dateFrom || txDay >= dateFrom;
-      const matchesTo = !dateTo || txDay <= dateTo;
-
-      return matchesType && matchesCategory && matchesSearch && matchesFrom && matchesTo;
+      return matchesType && matchesCategory && matchesAccount && matchesSearch;
     });
-  }, [transactions, filterType, filterCategory, search, dateFrom, dateTo]);
+  }, [
+    periodTransactions,
+    filterType,
+    filterCategory,
+    filterAccount,
+    search,
+    loanTakenLedgerIds,
+    loanGivenLedgerIds,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -549,9 +900,14 @@ export default function ExpenseDashboard({
 
   useEffect(() => {
     setPage(1);
-  }, [filterType, filterCategory, search, dateFrom, dateTo]);
+  }, [filterType, filterCategory, filterAccount, search, datePeriod, dateFrom, dateTo]);
 
   const formatBDT = (n: number) => `৳${Math.abs(n).toLocaleString("en-US")}`;
+  const getTransactionTypeLabel = (transaction: Transaction) => {
+    if (loanTakenLedgerIds.has(transaction.id)) return "Loan Taken";
+    if (loanGivenLedgerIds.has(transaction.id)) return "Loan Given";
+    return transaction.type === "INCOME" ? "Income" : "Expense";
+  };
 
   return (
     <div className="space-y-8">
@@ -584,12 +940,29 @@ export default function ExpenseDashboard({
       {activeTab === "expenses" && (
         <div className="space-y-8 animate-in fade-in duration-200">
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
             {[
               { label: "Balance", value: balance, color: balance >= 0 ? "text-income" : "text-expense", icon: DollarSign, bg: "bg-primary/10" },
               { label: "Total Income", value: currentTotalIncome, color: "text-income", icon: TrendingUp, bg: "bg-income/10" },
               { label: "Total Expense", value: currentTotalExpense, color: "text-expense", icon: TrendingDown, bg: "bg-expense/10" },
-              { label: "Savings %", value: currentTotalIncome > 0 ? Math.max(0, Math.round((balance / currentTotalIncome) * 100)) : 0, color: "text-primary", icon: DollarSign, bg: "bg-primary/10", isPercent: true },
+              { label: "Loan Payable", value: loanTotals.payable, color: "text-expense", icon: Banknote, bg: "bg-expense/10" },
+              { label: "Loan Receivable", value: loanTotals.receivable, color: "text-income", icon: HandCoins, bg: "bg-income/10" },
+              {
+                label: "Savings %",
+                value:
+                  currentTotalIncome > 0
+                    ? Math.max(
+                        0,
+                        Math.round(
+                          ((currentTotalIncome - currentTotalExpense) / currentTotalIncome) * 100
+                        )
+                      )
+                    : 0,
+                color: "text-primary",
+                icon: DollarSign,
+                bg: "bg-primary/10",
+                isPercent: true,
+              },
             ].map(({ label, value, color, icon: Icon, bg, isPercent }) => (
               <div key={label} className="app-card p-5">
                 <div className="flex justify-between items-center mb-3">
@@ -605,30 +978,54 @@ export default function ExpenseDashboard({
             ))}
           </div>
 
-          {/* Loan Given / Taken Overview */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { label: "Loan Receivable", value: loanTotals.receivable, color: "text-income", icon: HandCoins, bg: "bg-income/10" },
-              { label: "Loan Payable", value: loanTotals.payable, color: "text-expense", icon: Banknote, bg: "bg-expense/10" },
-              { label: "Total Given", value: loanTotals.loanGiven, color: "text-primary", icon: ReceiptText, bg: "bg-primary/10" },
-              { label: "Total Taken", value: loanTotals.loanTaken, color: "text-primary", icon: Banknote, bg: "bg-primary/10" },
-            ].map(({ label, value, color, icon: Icon, bg }) => (
-              <div key={label} className="app-card p-5">
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">{label}</span>
-                  <div className={`p-2 rounded-xl ${bg}`}>
-                    <Icon className={`h-4 w-4 ${color}`} />
-                  </div>
+          <div className="app-card flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="min-w-48">
+              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Report Period
+              </label>
+              <select
+                value={datePeriod}
+                onChange={(event) => setDatePeriod(event.target.value as DatePeriod)}
+                className="app-input py-2 text-xs"
+              >
+                <option value="all">All time</option>
+                <option value="today">Today</option>
+                <option value="week">This week</option>
+                <option value="month">This month</option>
+                <option value="year">This year</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            {datePeriod === "custom" && (
+              <>
+                <div>
+                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    From
+                  </label>
+                  <DateInput
+                    value={dateFrom}
+                    onChange={(event) => setDateFrom(event.target.value)}
+                    className="py-2 text-xs"
+                  />
                 </div>
-                <p className={`text-xl font-extrabold ${color}`}>{formatBDT(value)}</p>
-              </div>
-            ))}
+                <div>
+                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    To
+                  </label>
+                  <DateInput
+                    value={dateTo}
+                    onChange={(event) => setDateTo(event.target.value)}
+                    className="py-2 text-xs"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="app-card">
-              <h3 className="font-bold text-card-foreground text-sm mb-4">Monthly Income vs Expenses</h3>
+              <h3 className="font-bold text-card-foreground text-sm mb-4">Income vs Expenses</h3>
               <IncomeExpenseBarChart data={currentMonthlyData} />
             </div>
             <div className="app-card">
@@ -673,7 +1070,7 @@ export default function ExpenseDashboard({
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
               <div className="relative xl:col-span-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <input
@@ -692,6 +1089,8 @@ export default function ExpenseDashboard({
                 <option value="all">All types</option>
                 <option value="INCOME">Income</option>
                 <option value="EXPENSE">Expense</option>
+                <option value="LOAN_TAKEN">Loan Taken</option>
+                <option value="LOAN_GIVEN">Loan Given</option>
               </select>
               <select
                 value={filterCategory}
@@ -703,28 +1102,28 @@ export default function ExpenseDashboard({
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
-              <DateInput
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="py-2 text-xs"
-                title="From date"
-              />
-              <DateInput
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="py-2 text-xs"
-                title="To date"
-              />
+              <select
+                value={filterAccount}
+                onChange={(e) => setFilterAccount(e.target.value)}
+                className="app-input py-2 text-xs"
+              >
+                <option value="all">All accounts</option>
+                {ACCOUNT_METHODS.map((method) => (
+                  <option key={method.value} value={method.value}>{method.label}</option>
+                ))}
+              </select>
             </div>
 
-            {(filterType !== "all" || filterCategory !== "all" || search || dateFrom || dateTo) && (
+            {(filterType !== "all" || filterCategory !== "all" || filterAccount !== "all" || search || datePeriod !== "all") && (
               <div className="mb-4">
                 <button
                   type="button"
                   onClick={() => {
                     setFilterType("all");
                     setFilterCategory("all");
+                    setFilterAccount("all");
                     setSearch("");
+                    setDatePeriod("all");
                     setDateFrom("");
                     setDateTo("");
                   }}
@@ -746,24 +1145,32 @@ export default function ExpenseDashboard({
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-border">
-                        {["Type", "Category", "Note", "Date", "Amount", ""].map((h) => (
+                        {["Type", "Category", "Account", "Note", "Date", "Amount", ""].map((h) => (
                           <th key={h} className="pb-3 text-[10px] uppercase font-bold text-muted-foreground tracking-wider pr-4 last:pr-0">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/50">
-                      {paginated.map((tx) => (
+                      {paginated.map((tx) => {
+                        const isLoanTransaction =
+                          loanTakenLedgerIds.has(tx.id) || loanGivenLedgerIds.has(tx.id);
+                        return (
                         <tr key={tx.id} className="hover:bg-muted/50 transition-colors group">
                           <td className="py-3 pr-4">
                             <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                              tx.type === "INCOME"
+                              isLoanTransaction
+                                ? "bg-primary/10 text-primary border border-primary/20"
+                                : tx.type === "INCOME"
                                 ? "bg-income/10 text-income border border-income/20"
                                 : "bg-expense/10 text-expense border border-expense/20"
                             }`}>
-                              {tx.type === "INCOME" ? "IN" : "OUT"}
+                              {getTransactionTypeLabel(tx)}
                             </span>
                           </td>
                           <td className="py-3 pr-4 text-xs font-medium text-foreground max-w-[160px] truncate">{tx.category}</td>
+                          <td className="py-3 pr-4 text-xs font-semibold text-foreground whitespace-nowrap">
+                            {getAccountLabel(tx.account)}
+                          </td>
                           <td className="py-3 pr-4 text-xs text-muted-foreground max-w-[120px] truncate">{tx.note || "—"}</td>
                           <td className="py-3 pr-4 text-xs text-muted-foreground whitespace-nowrap">
                             {new Date(tx.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
@@ -774,19 +1181,24 @@ export default function ExpenseDashboard({
                             {tx.type === "INCOME" ? "+" : "−"}{formatBDT(tx.amount)}
                           </td>
                           <td className="py-3 text-right">
-                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => startEdit(tx)}
-                                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted active:scale-90 transition-all">
-                                <Edit2 className="h-3.5 w-3.5" />
-                              </button>
-                              <button onClick={() => handleDelete(tx.id)}
-                                className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-90 transition-all">
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
+                            {linkedLoanTransactionIds.has(tx.id) ? (
+                              <span className="text-[10px] font-semibold text-muted-foreground">Managed in Loans</span>
+                            ) : (
+                              <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => startEdit(tx)}
+                                  className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted active:scale-90 transition-all">
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                                <button onClick={() => handleDelete(tx.id)}
+                                  className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-90 transition-all">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            )}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -848,237 +1260,405 @@ export default function ExpenseDashboard({
             ))}
           </div>
 
-          {/* Loan Ledger Panel */}
           <div className="app-card">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-bold text-card-foreground">Loan Ledger</h2>
-                <p className="text-sm text-muted-foreground">Track money you lent, borrowed, and repaid.</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {filteredLoans.length} loan{filteredLoans.length === 1 ? "" : "s"}
+                  {filteredLoans.length > 0 && (
+                    <> · Page {currentLoanPage} of {loanTotalPages}</>
+                  )}
+                </p>
               </div>
+              <button
+                onClick={() => {
+                  resetLoanForm();
+                  setShowLoanForm(true);
+                }}
+                className="app-button-primary flex items-center gap-2 self-start text-xs"
+              >
+                <Plus className="h-4 w-4" /> Add Loan
+              </button>
+            </div>
 
-              <div className="flex flex-wrap gap-3">
-                <select
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
-                  className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground focus:border-primary focus:outline-none"
-                >
-                  <option value="OPEN">Open</option>
-                  <option value="PAID">Paid</option>
-                  <option value="all">All</option>
-                </select>
-                <button
-                  onClick={() => {
-                    resetLoanForm();
-                    setShowLoanForm(true);
-                  }}
-                  className="app-button-primary flex items-center gap-2 text-xs"
-                >
-                  <Plus className="h-4 w-4" /> Add Loan
-                </button>
+            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={loanPersonSearch}
+                  onChange={(event) => setLoanPersonSearch(event.target.value)}
+                  placeholder="Search person..."
+                  className="app-input py-2 pl-9 text-xs"
+                />
               </div>
+              <select
+                value={loanTypeFilter}
+                onChange={(event) => setLoanTypeFilter(event.target.value)}
+                className="app-input py-2 text-xs"
+              >
+                <option value="all">All loan types</option>
+                <option value="GIVEN">Given</option>
+                <option value="TAKEN">Taken</option>
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="app-input py-2 text-xs"
+              >
+                <option value="all">All statuses</option>
+                <option value="OPEN">Open</option>
+                <option value="PAID">Paid</option>
+              </select>
+              <select
+                value={loanAccountFilter}
+                onChange={(event) => setLoanAccountFilter(event.target.value)}
+                className="app-input py-2 text-xs"
+              >
+                <option value="all">All accounts</option>
+                {ACCOUNT_METHODS.map((method) => (
+                  <option key={method.value} value={method.value}>{method.label}</option>
+                ))}
+              </select>
+              <select
+                value={loanDatePeriod}
+                onChange={(event) => setLoanDatePeriod(event.target.value as DatePeriod)}
+                className="app-input py-2 text-xs"
+              >
+                <option value="all">All dates</option>
+                <option value="today">Today</option>
+                <option value="week">This week</option>
+                <option value="month">This month</option>
+                <option value="year">This year</option>
+                <option value="custom">Custom</option>
+              </select>
             </div>
-          </div>
 
-          {filteredLoans.length === 0 ? (
-            <div className="app-card p-12 text-center text-muted-foreground">
-              <HandCoins className="mx-auto mb-3 h-12 w-12 opacity-20" />
-              <p className="text-sm font-semibold">No loans found</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredLoans.map((loan) => {
-                const paid = getPaid(loan);
-                const outstanding = getOutstanding(loan);
-                const paymentDate = paymentDates[loan.id] || new Date().toISOString().split("T")[0];
+            {loanDatePeriod === "custom" && (
+              <div className="mb-5 grid grid-cols-1 gap-3 sm:max-w-lg sm:grid-cols-2">
+                <DateInput
+                  value={loanDateFrom}
+                  onChange={(event) => setLoanDateFrom(event.target.value)}
+                  className="py-2 text-xs"
+                  title="Loan date from"
+                />
+                <DateInput
+                  value={loanDateTo}
+                  onChange={(event) => setLoanDateTo(event.target.value)}
+                  className="py-2 text-xs"
+                  title="Loan date to"
+                />
+              </div>
+            )}
 
-                return (
-                  <div key={loan.id} className="app-card">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                              loan.direction === "GIVEN"
-                                ? "border-income/20 bg-income/10 text-income"
-                                : "border-expense/20 bg-expense/10 text-expense"
-                            }`}
+            {(loanTypeFilter !== "all" ||
+              statusFilter !== "all" ||
+              loanAccountFilter !== "all" ||
+              loanPersonSearch ||
+              loanDatePeriod !== "all") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLoanTypeFilter("all");
+                  setStatusFilter("all");
+                  setLoanAccountFilter("all");
+                  setLoanPersonSearch("");
+                  setLoanDatePeriod("all");
+                  setLoanDateFrom("");
+                  setLoanDateTo("");
+                }}
+                className="mb-5 text-[11px] font-bold text-primary hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
+
+            {filteredLoans.length === 0 ? (
+              <div className="py-14 text-center text-muted-foreground">
+                <HandCoins className="mx-auto mb-3 h-12 w-12 opacity-20" />
+                <p className="text-sm font-semibold">No loans found</p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-border">
+                        {[
+                          "Date",
+                          "Type / Person",
+                          "Account",
+                          "Principal",
+                          "Paid",
+                          "Outstanding",
+                          "Status",
+                          "Actions",
+                        ].map((heading) => (
+                          <th
+                            key={heading}
+                            className="pb-3 pr-4 text-[10px] font-bold uppercase tracking-wider text-muted-foreground last:pr-0"
                           >
-                            {loan.direction === "GIVEN" ? "Given" : "Taken"}
-                          </span>
-                          <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
-                            {loan.status}
-                          </span>
-                          <span className="text-xs text-muted-foreground">{new Date(loan.date).toLocaleDateString()}</span>
-                        </div>
-                        <h3 className="mt-2 text-lg font-bold text-card-foreground">{loan.personName}</h3>
-                        <p className="text-xs text-muted-foreground">{loan.note || "No note added"}</p>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-3 text-right text-xs">
-                        <div>
-                          <p className="text-muted-foreground">Principal</p>
-                          <p className="font-bold text-foreground">{formatBDT(loan.principal)}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Paid</p>
-                          <p className="font-bold text-primary">{formatBDT(paid)}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Outstanding</p>
-                          <p className={`font-bold ${loan.direction === "GIVEN" ? "text-income" : "text-expense"}`}>{formatBDT(outstanding)}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
-                      <input
-                        className="app-input text-xs"
-                        type="number"
-                        min="0.01"
-                        max={outstanding || undefined}
-                        step="0.01"
-                        disabled={outstanding === 0}
-                        value={paymentAmounts[loan.id] || ""}
-                        onChange={(event) => setPaymentAmounts((prev) => ({ ...prev, [loan.id]: event.target.value }))}
-                        placeholder={outstanding > 0 ? "Repayment amount" : "Fully paid"}
-                      />
-                      <input
-                        className="app-input text-xs"
-                        disabled={outstanding === 0}
-                        value={paymentNotes[loan.id] || ""}
-                        onChange={(event) => setPaymentNotes((prev) => ({ ...prev, [loan.id]: event.target.value }))}
-                        placeholder="Repayment note"
-                      />
-                      <DateInput
-                        className="text-xs"
-                        disabled={outstanding === 0}
-                        value={paymentDate}
-                        onChange={(event) => setPaymentDates((prev) => ({ ...prev, [loan.id]: event.target.value }))}
-                      />
-                      <button
-                        disabled={isPending || outstanding === 0}
-                        onClick={() => handlePayment(loan)}
-                        className="app-button-primary flex items-center justify-center gap-2 text-xs disabled:cursor-not-allowed"
-                      >
-                        <ReceiptText className="h-4 w-4" /> Repay
-                      </button>
-                    </div>
-
-                    {loan.payments.length > 0 && (
-                      <div className="mt-4 divide-y divide-border rounded-2xl border border-border bg-muted/30">
-                        {loan.payments.map((payment) => (
-                          <div key={payment.id} className="flex items-center justify-between gap-3 px-4 py-3 text-xs">
-                            <div>
-                              <p className="font-semibold text-foreground">{formatBDT(payment.amount)}</p>
-                              <p className="text-muted-foreground">
-                                {new Date(payment.date).toLocaleDateString()} {payment.note ? `- ${payment.note}` : ""}
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => handleDeletePayment(loan.id, payment.id)}
-                              className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                              title="Delete repayment"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                            {heading}
+                          </th>
                         ))}
-                      </div>
-                    )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {paginatedLoans.map((loan) => {
+                        const paid = getPaid(loan);
+                        const outstanding = getOutstanding(loan);
+                        return (
+                          <tr key={loan.id} className="group transition-colors hover:bg-muted/50">
+                            <td className="whitespace-nowrap py-3 pr-4 text-xs text-muted-foreground">
+                              {new Date(loan.date).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "2-digit",
+                              })}
+                            </td>
+                            <td className="py-3 pr-4">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                                    loan.direction === "GIVEN"
+                                      ? "border-income/20 bg-income/10 text-income"
+                                      : "border-expense/20 bg-expense/10 text-expense"
+                                  }`}
+                                >
+                                  {loan.direction === "GIVEN" ? "Given" : "Taken"}
+                                </span>
+                                <div>
+                                  <p className="whitespace-nowrap text-xs font-semibold text-foreground">
+                                    {loan.personName}
+                                  </p>
+                                  {loan.note && (
+                                    <p className="max-w-40 truncate text-[10px] text-muted-foreground">
+                                      {loan.note}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="whitespace-nowrap py-3 pr-4 text-xs font-semibold">
+                              {getAccountLabel(loan.account)}
+                            </td>
+                            <td className="whitespace-nowrap py-3 pr-4 text-xs font-bold">
+                              {formatBDT(loan.principal)}
+                            </td>
+                            <td className="whitespace-nowrap py-3 pr-4 text-xs font-bold text-primary">
+                              {formatBDT(paid)}
+                            </td>
+                            <td className={`whitespace-nowrap py-3 pr-4 text-xs font-bold ${
+                              loan.direction === "GIVEN" ? "text-income" : "text-expense"
+                            }`}>
+                              {formatBDT(outstanding)}
+                            </td>
+                            <td className="py-3 pr-4">
+                              <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
+                                {loan.status}
+                              </span>
+                            </td>
+                            <td className="py-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  type="button"
+                                  disabled={outstanding === 0}
+                                  onClick={() => openRepaymentModal(loan)}
+                                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-bold text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <ReceiptText className="h-3.5 w-3.5" /> Repay
+                                </button>
+                                <button
+                                  onClick={() => startEditLoan(loan)}
+                                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-primary"
+                                  title="Edit loan"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteLoan(loan.id)}
+                                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  title="Delete loan"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
 
-                    <div className="mt-4 flex justify-end gap-2">
-                      <button onClick={() => startEditLoan(loan)} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-primary" title="Edit loan">
-                        <Pencil className="h-4 w-4" />
+                {loanTotalPages > 1 && (
+                  <div className="mt-6 flex items-center justify-between gap-3 border-t border-border/40 pt-4">
+                    <p className="text-[11px] text-muted-foreground">
+                      Showing {(currentLoanPage - 1) * LOAN_PAGE_SIZE + 1}–
+                      {Math.min(currentLoanPage * LOAN_PAGE_SIZE, filteredLoans.length)} of{" "}
+                      {filteredLoans.length}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={currentLoanPage <= 1}
+                        onClick={() => setLoanPage((value) => Math.max(1, value - 1))}
+                        className="inline-flex items-center gap-1 rounded-xl border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <ChevronLeft className="h-3.5 w-3.5" /> Prev
                       </button>
-                      <button onClick={() => handleDeleteLoan(loan.id)} className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Delete loan">
-                        <Trash2 className="h-4 w-4" />
+                      <span className="min-w-12 text-center text-xs font-bold tabular-nums">
+                        {currentLoanPage}/{loanTotalPages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={currentLoanPage >= loanTotalPages}
+                        onClick={() =>
+                          setLoanPage((value) => Math.min(loanTotalPages, value + 1))
+                        }
+                        className="inline-flex items-center gap-1 rounded-xl border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Next <ChevronRight className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="app-card">
-            <div className="mb-4">
-              <h3 className="font-bold text-card-foreground text-lg">Loan History</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {loanHistory.length} record{loanHistory.length === 1 ? "" : "s"} of money given or taken.
-              </p>
-            </div>
-
-            {loanHistory.length === 0 ? (
-              <div className="py-10 text-center text-sm text-muted-foreground">No loan history yet</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-border">
-                      {["Date", "Taken/Given Person", "Amount", "Action"].map((heading) => (
-                        <th
-                          key={heading}
-                          className="pb-3 pr-4 text-[10px] font-bold uppercase tracking-wider text-muted-foreground last:pr-0"
-                        >
-                          {heading}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {loanHistory.map((loan) => (
-                      <tr key={loan.id} className="group transition-colors hover:bg-muted/50">
-                        <td className="py-3 pr-4 text-xs text-muted-foreground whitespace-nowrap">
-                          {new Date(loan.date).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "2-digit",
-                          })}
-                        </td>
-                        <td className="py-3 pr-4">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                                loan.direction === "GIVEN"
-                                  ? "border-income/20 bg-income/10 text-income"
-                                  : "border-expense/20 bg-expense/10 text-expense"
-                              }`}
-                            >
-                              {loan.direction === "GIVEN" ? "Given" : "Taken"}
-                            </span>
-                            <span className="text-xs font-semibold text-foreground">{loan.personName}</span>
-                          </div>
-                        </td>
-                        <td className="py-3 pr-4 text-sm font-extrabold text-foreground whitespace-nowrap">
-                          {formatBDT(loan.principal)}
-                        </td>
-                        <td className="py-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => startEditLoan(loan)}
-                              className="rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-muted hover:text-primary active:scale-90"
-                              title="Edit loan"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteLoan(loan.id)}
-                              className="rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive active:scale-90"
-                              title="Delete loan"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                )}
+              </>
             )}
           </div>
         </div>
       )}
+
+      <FormModal
+        open={Boolean(repayingLoan)}
+        onClose={closeRepaymentModal}
+        title={repayingLoan ? `Repay ${repayingLoan.personName}` : "Record Repayment"}
+      >
+        {repayingLoan && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-3 gap-3 rounded-2xl border border-border bg-muted/30 p-4 text-xs">
+              <div>
+                <p className="text-muted-foreground">Principal</p>
+                <p className="mt-1 font-bold text-foreground">
+                  {formatBDT(repayingLoan.principal)}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Paid</p>
+                <p className="mt-1 font-bold text-primary">{formatBDT(getPaid(repayingLoan))}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Outstanding</p>
+                <p className={`mt-1 font-bold ${
+                  repayingLoan.direction === "GIVEN" ? "text-income" : "text-expense"
+                }`}>
+                  {formatBDT(getOutstanding(repayingLoan))}
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handlePayment} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Repayment Amount
+                </label>
+                <input
+                  required
+                  type="number"
+                  min="0.01"
+                  max={getOutstanding(repayingLoan)}
+                  step="0.01"
+                  value={repaymentAmount}
+                  onChange={(event) => setRepaymentAmount(event.target.value)}
+                  className="app-input text-xs"
+                  placeholder="Enter amount"
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Account
+                  </label>
+                  <select
+                    value={repaymentAccount}
+                    onChange={(event) => setRepaymentAccount(event.target.value)}
+                    className="app-input text-xs"
+                  >
+                    {ACCOUNT_METHODS.map((method) => (
+                      <option key={method.value} value={method.value}>{method.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Date
+                  </label>
+                  <DateInput
+                    required
+                    value={repaymentDate}
+                    onChange={(event) => setRepaymentDate(event.target.value)}
+                    className="text-xs"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Statement / Note
+                </label>
+                <input
+                  value={repaymentNote}
+                  onChange={(event) => setRepaymentNote(event.target.value)}
+                  className="app-input text-xs"
+                  placeholder="Optional repayment statement"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isPending || getOutstanding(repayingLoan) === 0}
+                className="app-button-primary flex w-full items-center justify-center gap-2 py-2.5 text-xs"
+              >
+                <ReceiptText className="h-4 w-4" />
+                {isPending ? "Saving..." : "Record Repayment"}
+              </button>
+            </form>
+
+            <div>
+              <h3 className="mb-2 text-xs font-bold text-card-foreground">Repayment History</h3>
+              {repayingLoan.payments.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-border py-6 text-center text-xs text-muted-foreground">
+                  No repayments recorded
+                </p>
+              ) : (
+                <div className="max-h-56 divide-y divide-border overflow-y-auto rounded-xl border border-border">
+                  {repayingLoan.payments.map((payment) => (
+                    <div
+                      key={payment.id}
+                      className="flex items-center justify-between gap-3 px-3 py-2.5 text-xs"
+                    >
+                      <div>
+                        <p className="font-bold text-foreground">{formatBDT(payment.amount)}</p>
+                        <p className="text-muted-foreground">
+                          {new Date(payment.date).toLocaleDateString()} ·{" "}
+                          {getAccountLabel(payment.account)}
+                          {payment.note ? ` · ${payment.note}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePayment(repayingLoan.id, payment.id)}
+                        className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        title="Delete repayment"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </FormModal>
 
       <FormModal
         open={showForm}
@@ -1127,7 +1707,7 @@ export default function ExpenseDashboard({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <CategorySelect
               type={txType as CategoryType}
               value={category}
@@ -1136,6 +1716,18 @@ export default function ExpenseDashboard({
               onCategoryAdded={handleCategoryAdded}
               onCategoryDeleted={handleCategoryDeleted}
             />
+            <div>
+              <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Account</label>
+              <select
+                value={account}
+                onChange={(event) => setAccount(event.target.value)}
+                className="app-input text-xs"
+              >
+                {ACCOUNT_METHODS.map((method) => (
+                  <option key={method.value} value={method.value}>{method.label}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Date</label>
               <DateInput
@@ -1244,6 +1836,20 @@ export default function ExpenseDashboard({
                 onChange={(event) => setInterestRate(event.target.value)}
               />
             </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Account
+            </label>
+            <select
+              className="app-input text-xs"
+              value={loanAccount}
+              onChange={(event) => setLoanAccount(event.target.value)}
+            >
+              {ACCOUNT_METHODS.map((method) => (
+                <option key={method.value} value={method.value}>{method.label}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
