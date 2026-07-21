@@ -4,7 +4,6 @@ import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import { redirect } from "next/navigation";
 import NotificationBell from "@/components/NotificationBell";
-import ThemeToggle from "@/components/ThemeToggle";
 import QuickAddModal from "@/components/QuickAddModal";
 import HeaderDate from "@/components/HeaderDate";
 import thryveLogo from "@/app/thryve.png";
@@ -14,8 +13,11 @@ export const metadata: Metadata = {
   title: "ThryveUp | Dashboard",
   description: "Your personal productivity and expense management dashboard.",
   icons: {
-    icon: "/icon-192.png",
-    shortcut: "/icon-192.png",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
     apple: "/icon-192.png",
   },
 };
@@ -57,7 +59,6 @@ export default async function DashboardLayout({
 
           <div className="flex items-center gap-3">
             <HeaderDate />
-            <ThemeToggle />
             <NotificationBell />
             <MobileNav />
           </div>

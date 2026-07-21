@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 interface FormModalProps {
@@ -26,34 +27,41 @@ export default function FormModal({
   children,
   maxWidth = "lg",
 }: FormModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      document.body.style.overflow = prevOverflow;
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <button
         type="button"
         aria-label="Close modal backdrop"
-        className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+        className="absolute inset-0 bg-slate-900/25 dark:bg-slate-950/40 backdrop-blur-xl backdrop-saturate-150"
         onClick={onClose}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="form-modal-title"
-        className={`app-card relative z-10 w-full ${maxWidthClass[maxWidth]} max-h-[90vh] overflow-y-auto p-6 sm:p-8 animate-in zoom-in-95 fade-in duration-200`}
+        className={`app-card relative z-10 w-full ${maxWidthClass[maxWidth]} max-h-[90vh] overflow-y-auto p-6 sm:p-8 shadow-2xl border-white/40 dark:border-white/10 bg-card/90 backdrop-blur-md animate-in zoom-in-95 fade-in duration-200`}
       >
         <div className="flex items-start justify-between gap-4 mb-5">
           <h3 id="form-modal-title" className="text-xl font-bold text-card-foreground pr-8">
@@ -62,7 +70,7 @@ export default function FormModal({
           <button
             type="button"
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            className="absolute top-4 right-4 p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -70,6 +78,7 @@ export default function FormModal({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

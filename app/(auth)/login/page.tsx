@@ -1,7 +1,7 @@
 "use client";
 
 import { useFormState, useFormStatus } from "react-dom";
-import { loginWithCredentials } from "@/app/actions/auth";
+import { beginLoginAction } from "@/app/actions/security";
 import Image from "next/image";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
@@ -10,8 +10,9 @@ import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
 import { KeyRound, Mail, ArrowRight } from "lucide-react";
 import thryveLogo from "@/app/thryve.png";
+import { friendlyError } from "@/lib/errors";
 
-function SubmitButton() {
+function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
 
   return (
@@ -24,7 +25,7 @@ function SubmitButton() {
         <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
       ) : (
         <>
-          Sign In
+          {label}
           <ArrowRight className="h-4 w-4" />
         </>
       )}
@@ -43,32 +44,33 @@ export default function LoginPage() {
     setErrorParam(params.get("error"));
   }, []);
 
-  const [state, formAction] = useFormState(loginWithCredentials, null);
+  const [loginState, loginAction] = useFormState(beginLoginAction, null);
 
   useEffect(() => {
     if (errorParam) {
       if (errorParam === "OAuthAccountNotLinked") {
-        toast.error("An account with this email already exists under a different sign-in method.");
+        toast.error("This email is already linked to a different sign-in method.");
+      } else if (errorParam === "Callback" || errorParam === "CallbackRouteError") {
+        toast.error("Sign-in could not be completed. Please try again.");
       } else {
-        toast.error("Authentication failed. Please try again.");
+        toast.error(friendlyError(errorParam, "Authentication failed. Please try again."));
       }
     }
   }, [errorParam]);
 
   useEffect(() => {
-    if (state?.error) {
-      toast.error(state.error);
+    if (loginState?.error) {
+      toast.error(friendlyError(loginState.error, "Sign-in failed. Please try again."));
     }
-    if (state?.success) {
+    if (loginState?.success) {
       toast.success("Successfully logged in!");
       router.push(callbackUrl);
     }
-  }, [state, router, callbackUrl]);
+  }, [loginState, router, callbackUrl]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-background text-foreground">
       <div className="app-card w-full max-w-md p-8 relative overflow-hidden">
-        {/* Glow Effects */}
         <div className="absolute -top-12 -left-12 w-32 h-32 bg-primary/20 rounded-full blur-3xl pointer-events-none"></div>
         <div className="absolute -bottom-12 -right-12 w-32 h-32 bg-primary/10 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -76,15 +78,13 @@ export default function LoginPage() {
           <div className="mx-auto mb-4 h-14 w-14 overflow-hidden rounded-2xl bg-primary/10 shadow-lg shadow-primary/25">
             <Image src={thryveLogo} alt="ThryveUp logo" className="h-full w-full object-cover" priority />
           </div>
-          <h1 className="app-page-title">
-            Welcome to ThryveUp
-          </h1>
+          <h1 className="app-page-title">Welcome to ThryveUp</h1>
           <p className="text-muted-foreground mt-2 text-sm">
             Sign in to access your planner and dashboard
           </p>
         </div>
 
-        <form action={formAction} className="space-y-5 relative">
+        <form action={loginAction} className="space-y-5 relative">
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
               Email Address
@@ -119,7 +119,7 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <SubmitButton />
+          <SubmitButton label="Sign In" />
         </form>
 
         <div className="relative flex items-center justify-center my-6">
@@ -139,10 +139,7 @@ export default function LoginPage() {
 
         <div className="text-center mt-6 text-sm text-muted-foreground">
           New to ThryveUp?{" "}
-          <Link
-            href="/register"
-            className="app-link-primary"
-          >
+          <Link href="/register" className="app-link-primary">
             Create Account
           </Link>
         </div>

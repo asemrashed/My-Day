@@ -14,9 +14,12 @@ model User {
   emailVerified    DateTime?
   image            String?
   passwordHash     String?
+  twoFactorEnabled Boolean        @default(false)
   createdAt        DateTime       @default(now())
   accounts         Account[]
   sessions         Session[]
+  deviceSessions   DeviceSession[]
+  otpChallenges    OtpChallenge[]
   tasks            Task[]
   taskGroups       TaskGroup[]
   events           Event[]
@@ -30,6 +33,40 @@ model User {
   categories       Category[]
   links            Link[]
   categoriesSeeded Boolean        @default(false)
+}
+
+model OtpChallenge {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String    @db.ObjectId
+  email      String
+  purpose    String // LOGIN_2FA | ENABLE_2FA | DISABLE_2FA | CHANGE_PASSWORD | DELETE_ACCOUNT
+  codeHash   String
+  tokenHash  String    @unique
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([email, purpose])
+}
+
+model DeviceSession {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String    @db.ObjectId
+  sessionId  String    @unique
+  userAgent  String?
+  ipAddress  String?
+  label      String?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
 }
 
 model Category {

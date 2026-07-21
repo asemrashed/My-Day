@@ -4,7 +4,10 @@ export default auth((req) => {
   const isLoggedIn = !!req.auth;
   const { pathname } = req.nextUrl;
   
-  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/register");
+  const isAuthPage =
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/register") ||
+    pathname.startsWith("/verify-otp");
 
   if (isAuthPage) {
     if (isLoggedIn) {
@@ -34,6 +37,6 @@ export const config = {
      * - _next/static, _next/image (static Next.js assets)
      * - favicon and web app manifest assets
      */
-    "/((?!api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon-192.png|icon-512.png|icon.png).*)",
+    "/((?!api/auth|_next/static|_next/image|favicon.ico|icon.ico|manifest.webmanifest|icon-192.png|icon-512.png|icon-maskable-512.png|icon.png).*)",
   ],
 };

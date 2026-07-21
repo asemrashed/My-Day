@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import Google from "next-auth/providers/google";
 import { prisma } from "@/lib/prisma";
+import { isDeviceSessionValid } from "@/lib/devices";
 
 export const { auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -17,14 +18,30 @@ export const { auth } = NextAuth({
   },
   callbacks: {
     async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
+      try {
+        if (user) {
+          token.id = user.id;
+        }
+
+        if (token.sessionId) {
+          const valid = await isDeviceSessionValid(token.sessionId as string);
+          if (!valid) {
+            return { ...token, id: undefined, sessionId: undefined };
+          }
+        }
+      } catch {
+        // Never throw from edge jwt callback
       }
+
       return token;
     },
     async session({ session, token }) {
-      if (token && session.user) {
+      if (!token?.id) {
+        return session;
+      }
+      if (session.user) {
         session.user.id = token.id as string;
+        (session as any).sessionId = token.sessionId as string | undefined;
       }
       return session;
     },

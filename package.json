@@ -7,6 +7,8 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
+    "icons": "node scripts/generate-icons.js",
+    "icons:apply-desktop": "node scripts/apply-desktop-icon.js",
     "migrate:goal-checklists": "node scripts/migrate-goal-checklists.js",
     "migrate:loan-ledger": "node scripts/backfill-loan-ledger.js"
   },
@@ -34,6 +36,7 @@
     "lucide-react": "^1.16.0",
     "next": "14.2.35",
     "next-auth": "^5.0.0-beta.25",
+    "nodemailer": "^6.10.1",
     "react": "^18",
     "react-dom": "^18",
     "react-hot-toast": "^2.6.0",
@@ -44,6 +47,7 @@
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/recharts": "^1.8.29",
