@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import NotesRichEditor from "@/components/NotesRichEditor";
 import FormModal from "@/components/FormModal";
+import FileAttachments, { uploadPendingFiles } from "@/components/FileAttachments";
 import {
   FileText,
   Plus,
@@ -56,6 +57,7 @@ export default function NotesEditor() {
   const [filterCategory, setFilterCategory] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
   useEffect(() => {
     fetchNotes();
@@ -132,6 +134,7 @@ export default function NotesEditor() {
 
   const openCreate = () => {
     setEditingNote(null);
+    setPendingFiles([]);
     const key = draftKey("note", null);
     const existing = loadDraft<NoteDraft>(key);
     if (existing?.data && (existing.data.title || (existing.data.content && existing.data.content !== "<p></p>"))) {
@@ -147,6 +150,7 @@ export default function NotesEditor() {
 
   const openEdit = (note: Note) => {
     setEditingNote(note);
+    setPendingFiles([]);
     const key = draftKey("note", note.id);
     const existing = loadDraft<NoteDraft>(key);
     const base: NoteDraft = {
@@ -169,6 +173,7 @@ export default function NotesEditor() {
     setShowForm(false);
     setEditingNote(null);
     setDraftBanner(null);
+    setPendingFiles([]);
   };
 
   const restoreDraft = () => {
@@ -224,6 +229,13 @@ export default function NotesEditor() {
 
       if (res.ok) {
         const savedNote = await res.json();
+        if (pendingFiles.length > 0) {
+          try {
+            await uploadPendingFiles("NOTE", savedNote.id, pendingFiles);
+          } catch {
+            toast.error("Note saved, but some files failed to upload");
+          }
+        }
         toast.success(editingNote ? "Note updated!" : "Note created!");
         clearDraft(draftKey("note", editingNote?.id));
         clearDraft(draftKey("note", savedNote.id));
@@ -511,6 +523,10 @@ export default function NotesEditor() {
           />
 
           <div className="mt-4 pt-4 border-t border-border/40 shrink-0">
+            <FileAttachments ownerType="NOTE" ownerId={selectedNote.id} />
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-border/40 shrink-0">
             <ReferencesPanel sourceType="NOTE" sourceId={selectedNote.id} />
           </div>
         </div>
@@ -587,6 +603,16 @@ export default function NotesEditor() {
           calculationMode={calculationMode}
           taskMode={taskMode}
         />
+
+        <div className="mt-4 pt-4 border-t border-border/40">
+          <FileAttachments
+            ownerType="NOTE"
+            ownerId={editingNote?.id}
+            pendingFiles={pendingFiles}
+            onPendingFilesChange={setPendingFiles}
+            compact
+          />
+        </div>
       </FormModal>
     </div>
   );

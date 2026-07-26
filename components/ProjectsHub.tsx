@@ -20,6 +20,7 @@ import {
 import toast from "react-hot-toast";
 import DateInput from "@/components/DateInput";
 import FormModal from "@/components/FormModal";
+import FileAttachments, { uploadPendingFiles } from "@/components/FileAttachments";
 import {
   createProject,
   deleteProject,
@@ -117,6 +118,7 @@ export default function ProjectsHub({ initialProjects, notes, tasks, events, lin
   const [secretText, setSecretText] = useState("");
   const [unlockedSecret, setUnlockedSecret] = useState("");
   const [isPending, startTransition] = useTransition();
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
   const selected = projects.find((project) => project.id === selectedId) || projects[0] || null;
   const selectedLinks = selected ? linkMap[selected.id] || { noteIds: [], taskIds: [], eventIds: [] } : null;
@@ -145,11 +147,13 @@ export default function ProjectsHub({ initialProjects, notes, tasks, events, lin
     setForm(emptyForm);
     setFeaturesText("");
     setTechText("");
+    setPendingFiles([]);
     setShowForm(true);
   };
 
   const openEdit = (project: ProjectItem) => {
     setEditing(project);
+    setPendingFiles([]);
     const links = linkMap[project.id] || { noteIds: [], taskIds: [], eventIds: [] };
     setForm({
       id: project.id,
@@ -201,7 +205,17 @@ export default function ProjectsHub({ initialProjects, notes, tasks, events, lin
         return;
       }
 
+      const projectId = result.project?.id || editing?.id;
+      if (projectId && pendingFiles.length > 0) {
+        try {
+          await uploadPendingFiles("PROJECT", projectId, pendingFiles);
+        } catch {
+          toast.error("Project saved, but some files failed to upload");
+        }
+      }
+
       toast.success(editing ? "Project updated" : "Project created");
+      setPendingFiles([]);
       setShowForm(false);
       router.refresh();
       window.setTimeout(() => window.location.reload(), 150);
@@ -444,6 +458,10 @@ export default function ProjectsHub({ initialProjects, notes, tasks, events, lin
               </RelatedCard>
             </div>
 
+            <div className="app-card">
+              <FileAttachments ownerType="PROJECT" ownerId={selected.id} />
+            </div>
+
             <div className="app-card border-amber-500/20 bg-amber-500/5">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
@@ -499,7 +517,10 @@ export default function ProjectsHub({ initialProjects, notes, tasks, events, lin
 
       <FormModal
         open={showForm}
-        onClose={() => setShowForm(false)}
+        onClose={() => {
+          setShowForm(false);
+          setPendingFiles([]);
+        }}
         title={editing ? "Edit Project" : "New Project"}
         maxWidth="2xl"
       >
@@ -604,8 +625,16 @@ export default function ProjectsHub({ initialProjects, notes, tasks, events, lin
             />
           </Field>
 
+          <FileAttachments
+            ownerType="PROJECT"
+            ownerId={editing?.id}
+            pendingFiles={pendingFiles}
+            onPendingFilesChange={setPendingFiles}
+            compact
+          />
+
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setShowForm(false)} className="rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-muted">
+            <button type="button" onClick={() => { setShowForm(false); setPendingFiles([]); }} className="rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-muted">
               Cancel
             </button>
             <button type="submit" disabled={isPending} className="app-button-primary text-xs">

@@ -32,6 +32,7 @@ model User {
   projects         Project[]
   categories       Category[]
   links            Link[]
+  fileAttachments  FileAttachment[]
   categoriesSeeded Boolean        @default(false)
 }
 
@@ -292,4 +293,21 @@ model Note {
   updatedAt   DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Files attached to notes or projects (stored on disk under /uploads)
+model FileAttachment {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @db.ObjectId
+  ownerType    String // NOTE / PROJECT
+  ownerId      String   @db.ObjectId
+  originalName String
+  storedName   String
+  mimeType     String
+  size         Int
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, ownerType, ownerId])
 }

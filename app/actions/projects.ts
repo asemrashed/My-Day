@@ -4,6 +4,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
+import { removeStoredFile } from "@/lib/files";
 import { prisma } from "@/lib/prisma";
 
 const SOURCE_TYPE = "PROJECT";
@@ -179,12 +180,21 @@ export async function deleteProject(projectId: string) {
     const userId = await getUserId();
     await assertOwnsProject(userId, projectId);
 
+    const attached = await prisma.fileAttachment.findMany({
+      where: { userId, ownerType: SOURCE_TYPE, ownerId: projectId },
+    });
+
     await prisma.$transaction([
+      prisma.fileAttachment.deleteMany({
+        where: { userId, ownerType: SOURCE_TYPE, ownerId: projectId },
+      }),
       prisma.link.deleteMany({
         where: { userId, sourceType: SOURCE_TYPE, sourceId: projectId },
       }),
       prisma.project.delete({ where: { id: projectId } }),
     ]);
+
+    await Promise.all(attached.map((file) => removeStoredFile(userId, file.storedName)));
 
     projectRevalidate();
     return { success: true };
