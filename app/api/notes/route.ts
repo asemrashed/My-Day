@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { removeStoredFile } from "@/lib/files";
 
 export async function GET() {
   const session = await auth();
@@ -80,10 +79,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Note not found" }, { status: 404 });
   }
 
-  const attached = await prisma.fileAttachment.findMany({
-    where: { userId: session.user.id, ownerType: "NOTE", ownerId: id },
-  });
-
   await prisma.$transaction([
     prisma.fileAttachment.deleteMany({
       where: { userId: session.user.id, ownerType: "NOTE", ownerId: id },
@@ -99,8 +94,6 @@ export async function DELETE(request: Request) {
     }),
     prisma.note.delete({ where: { id } }),
   ]);
-
-  await Promise.all(attached.map((file) => removeStoredFile(session.user!.id!, file.storedName)));
 
   return NextResponse.json({ success: true });
 }

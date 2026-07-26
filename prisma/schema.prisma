@@ -295,16 +295,16 @@ model Note {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// Files attached to notes or projects (stored on disk under /uploads)
+// Files attached to notes or projects (binary stored in MongoDB for Vercel compatibility)
 model FileAttachment {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   userId       String   @db.ObjectId
   ownerType    String // NOTE / PROJECT
   ownerId      String   @db.ObjectId
   originalName String
-  storedName   String
   mimeType     String
   size         Int
+  data         Bytes
   createdAt    DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

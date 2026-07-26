@@ -1,7 +1,8 @@
 export const OWNER_TYPES = ["NOTE", "PROJECT"] as const;
 export type FileOwnerType = (typeof OWNER_TYPES)[number];
 
-export const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15 MB
+/** Keep under Vercel serverless request body limit (~4.5 MB) and MongoDB 16 MB doc limit. */
+export const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4 MB
 
 /** Extensions users commonly attach to notes/projects */
 export const ALLOWED_EXTENSIONS = new Set([

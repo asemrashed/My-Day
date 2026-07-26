@@ -1,18 +1,12 @@
-import { randomUUID } from "crypto";
-import fs from "fs/promises";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
   ALLOWED_EXTENSIONS,
-  ensureUserUploadDir,
-  getExtension,
   isAllowedFilename,
   MAX_FILE_SIZE,
   OWNER_TYPES,
-  removeStoredFile,
   sanitizeFilename,
-  storedFilePath,
   toFileDto,
   type FileOwnerType,
 } from "@/lib/files";
@@ -45,6 +39,15 @@ export async function GET(request: Request) {
 
   const files = await prisma.fileAttachment.findMany({
     where: { userId: session.user.id, ownerType, ownerId },
+    select: {
+      id: true,
+      ownerType: true,
+      ownerId: true,
+      originalName: true,
+      mimeType: true,
+      size: true,
+      createdAt: true,
+    },
     orderBy: { createdAt: "desc" },
   });
 
@@ -84,19 +87,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Empty files are not allowed" }, { status: 400 });
   }
   if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json({ error: "File exceeds the 15 MB limit" }, { status: 400 });
+    return NextResponse.json({ error: "File exceeds the 4 MB limit" }, { status: 400 });
   }
 
   const owns = await assertOwnsOwner(session.user.id, ownerType, ownerId);
   if (!owns) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const originalName = sanitizeFilename(file.name);
-  const ext = getExtension(originalName);
-  const storedName = `${randomUUID()}${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
-
-  await ensureUserUploadDir(session.user.id);
-  await fs.writeFile(storedFilePath(session.user.id, storedName), buffer);
 
   const row = await prisma.fileAttachment.create({
     data: {
@@ -104,9 +102,18 @@ export async function POST(request: Request) {
       ownerType,
       ownerId,
       originalName,
-      storedName,
       mimeType: file.type || "application/octet-stream",
       size: buffer.length,
+      data: buffer,
+    },
+    select: {
+      id: true,
+      ownerType: true,
+      ownerId: true,
+      originalName: true,
+      mimeType: true,
+      size: true,
+      createdAt: true,
     },
   });
 
