@@ -5,6 +5,7 @@ import FormModal from "@/components/FormModal";
 import DateInput from "@/components/DateInput";
 import { CreditCard, Target, CheckSquare, Search } from "lucide-react";
 import toast from "react-hot-toast";
+import { useGoalOptionRows, useTasksBoard, useTransactionsList } from "@/hooks/useAppQueries";
 
 export type ReferenceTarget = { targetType: string; targetId: string };
 
@@ -56,17 +57,19 @@ export default function ReferencePicker({ open, onClose, onAttach, excludeIds = 
   const [selected, setSelected] = useState<Map<string, ReferenceTarget>>(new Map());
   const [isAttaching, setIsAttaching] = useState(false);
 
-  // Filters
   const [search, setSearch] = useState("");
   const [txType, setTxType] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  // Data
-  const [transactions, setTransactions] = useState<TxItem[]>([]);
-  const [goals, setGoals] = useState<GoalItem[]>([]);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { data: txData, isFetching: txLoading } = useTransactionsList(open);
+  const { data: goalRows = [], isFetching: goalsLoading } = useGoalOptionRows(open);
+  const { data: board, isFetching: tasksLoading } = useTasksBoard(undefined, open);
+  const loading = open && (txLoading || goalsLoading || tasksLoading) && !txData && goalRows.length === 0 && !board;
+
+  const transactions = (Array.isArray(txData) ? txData : []) as TxItem[];
+  const goals = goalRows as GoalItem[];
+  const tasks = (board?.tasks || []) as TaskItem[];
 
   useEffect(() => {
     if (!open) return;
@@ -75,20 +78,6 @@ export default function ReferencePicker({ open, onClose, onAttach, excludeIds = 
     setTxType("all");
     setDateFrom("");
     setDateTo("");
-
-    setLoading(true);
-    Promise.all([
-      fetch("/api/transactions").then((r) => r.json()),
-      fetch("/api/goals").then((r) => r.json()),
-      fetch("/api/tasks").then((r) => r.json()),
-    ])
-      .then(([txRes, goalsRes, tasksRes]) => {
-        setTransactions(Array.isArray(txRes.transactions) ? txRes.transactions : []);
-        setGoals(Array.isArray(goalsRes) ? goalsRes : []);
-        setTasks(Array.isArray(tasksRes.tasks) ? tasksRes.tasks : []);
-      })
-      .catch(() => toast.error("Failed to load data"))
-      .finally(() => setLoading(false));
   }, [open]);
 
   const q = search.trim().toLowerCase();

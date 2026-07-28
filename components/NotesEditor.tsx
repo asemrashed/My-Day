@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NotesRichEditor from "@/components/NotesRichEditor";
 import FormModal from "@/components/FormModal";
 import FileAttachments, { uploadPendingFiles } from "@/components/FileAttachments";
@@ -20,14 +20,19 @@ import toast from "react-hot-toast";
 import { clearDraft, draftKey, loadDraft, saveDraft } from "@/lib/drafts";
 import DateInput from "@/components/DateInput";
 import ReferencesPanel from "@/components/ReferencesPanel";
+import { useInvalidateAppQueries } from "@/hooks/useAppQueries";
 
-type Note = {
+type NoteSummary = {
   id: string;
   title: string | null;
-  content: string;
+  preview: string;
   attachments: string[];
   createdAt: string;
   updatedAt: string;
+};
+
+type Note = NoteSummary & {
+  content?: string;
 };
 
 type NoteDraft = {
@@ -37,11 +42,18 @@ type NoteDraft = {
 };
 
 const CATEGORIES = ["Inbox", "Personal", "Work", "Finance", "Dev", "Other"];
+const PAGE_SIZE = 10;
 
 export default function NotesEditor() {
-  const [notes, setNotes] = useState<Note[]>([]);
+  const [notes, setNotes] = useState<NoteSummary[]>([]);
+  const [groups, setGroups] = useState<string[]>([]);
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [loadingSelected, setLoadingSelected] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [calculationMode, setCalculationMode] = useState(false);
@@ -54,13 +66,30 @@ export default function NotesEditor() {
     category: "Inbox",
   });
   const [search, setSearch] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const { invalidateNotes } = useInvalidateAppQueries();
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useRef(false);
+  const activeGroupRef = useRef<string | null>(null);
+  const groupsRef = useRef<string[]>([]);
+  const nextCursorRef = useRef<string | null>(null);
 
   useEffect(() => {
-    fetchNotes();
+    activeGroupRef.current = activeGroup;
+  }, [activeGroup]);
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
+  useEffect(() => {
+    nextCursorRef.current = nextCursor;
+  }, [nextCursor]);
+
+  useEffect(() => {
     const calc = localStorage.getItem("thryve-notes-calc-mode");
     const task = localStorage.getItem("thryve-notes-task-mode");
     if (calc === "1") setCalculationMode(true);
@@ -75,53 +104,152 @@ export default function NotesEditor() {
     localStorage.setItem("thryve-notes-task-mode", taskMode ? "1" : "0");
   }, [taskMode]);
 
-  const fetchNotes = (preferId?: string) => {
-    fetch("/api/notes")
-      .then((r) => r.json())
-      .then((data) => {
-        const list = Array.isArray(data) ? data : [];
-        setNotes(list);
-        if (preferId) {
-          const found = list.find((n: Note) => n.id === preferId);
-          if (found) setSelectedNote(found);
-          return;
-        }
-        setSelectedNote((prev) => {
-          if (!prev) return null;
-          return list.find((n: Note) => n.id === prev.id) || null;
-        });
-      })
-      .catch(() => setNotes([]));
-  };
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchDebounced(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  const getNoteCategory = (note: Note) =>
+  const filterParams = useCallback(() => {
+    const params = new URLSearchParams();
+    if (searchDebounced) params.set("q", searchDebounced);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    return params;
+  }, [searchDebounced, dateFrom, dateTo]);
+
+  const fetchGroupPage = useCallback(
+    async (group: string, cursor?: string | null) => {
+      const params = filterParams();
+      params.set("limit", String(PAGE_SIZE));
+      params.set("category", group);
+      if (cursor) params.set("cursor", cursor);
+      const response = await fetch(`/api/notes?${params}`);
+      if (!response.ok) throw new Error();
+      return response.json() as Promise<{ notes: NoteSummary[]; nextCursor: string | null }>;
+    },
+    [filterParams]
+  );
+
+  const hasMoreToLoad = useCallback(() => {
+    if (nextCursorRef.current) return true;
+    const group = activeGroupRef.current;
+    if (!group) return false;
+    const idx = groupsRef.current.indexOf(group);
+    return idx >= 0 && idx < groupsRef.current.length - 1;
+  }, []);
+
+  const resetAndLoad = useCallback(async () => {
+    setLoading(true);
+    setSelectedNote(null);
+    setNotes([]);
+    setNextCursor(null);
+    nextCursorRef.current = null;
+    try {
+      if (filterCategory !== "all") {
+        setGroups([filterCategory]);
+        groupsRef.current = [filterCategory];
+        setActiveGroup(filterCategory);
+        activeGroupRef.current = filterCategory;
+        const data = await fetchGroupPage(filterCategory, null);
+        setNotes(data.notes || []);
+        setNextCursor(data.nextCursor || null);
+        nextCursorRef.current = data.nextCursor || null;
+        return;
+      }
+
+      const metaParams = filterParams();
+      metaParams.set("meta", "groups");
+      const metaRes = await fetch(`/api/notes?${metaParams}`);
+      if (!metaRes.ok) throw new Error();
+      const meta = await metaRes.json();
+      const groupNames: string[] = Array.isArray(meta.groups) ? meta.groups.map((g: { name: string }) => g.name) : [];
+      setGroups(groupNames);
+      groupsRef.current = groupNames;
+      if (groupNames.length === 0) {
+        setActiveGroup(null);
+        activeGroupRef.current = null;
+        setNotes([]);
+        return;
+      }
+      const first = groupNames[0];
+      setActiveGroup(first);
+      activeGroupRef.current = first;
+      const data = await fetchGroupPage(first, null);
+      setNotes(data.notes || []);
+      setNextCursor(data.nextCursor || null);
+      nextCursorRef.current = data.nextCursor || null;
+    } catch {
+      setNotes([]);
+      toast.error("Failed to load notes");
+    } finally {
+      setLoading(false);
+    }
+  }, [filterCategory, filterParams, fetchGroupPage]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || loading) return;
+    if (!hasMoreToLoad()) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const cursor = nextCursorRef.current;
+      let group = activeGroupRef.current;
+      if (!group) return;
+
+      if (cursor) {
+        const data = await fetchGroupPage(group, cursor);
+        setNotes((current) => [...current, ...(data.notes || [])]);
+        setNextCursor(data.nextCursor || null);
+        nextCursorRef.current = data.nextCursor || null;
+        return;
+      }
+
+      const idx = groupsRef.current.indexOf(group);
+      const nextGroup = groupsRef.current[idx + 1];
+      if (!nextGroup) return;
+      setActiveGroup(nextGroup);
+      activeGroupRef.current = nextGroup;
+      const data = await fetchGroupPage(nextGroup, null);
+      setNotes((current) => [...current, ...(data.notes || [])]);
+      setNextCursor(data.nextCursor || null);
+      nextCursorRef.current = data.nextCursor || null;
+    } catch {
+      toast.error("Failed to load more notes");
+    } finally {
+      setLoadingMore(false);
+      loadingMoreRef.current = false;
+    }
+  }, [fetchGroupPage, hasMoreToLoad, loading]);
+
+  useEffect(() => {
+    resetAndLoad();
+  }, [resetAndLoad]);
+
+  const overviewOpen = !!selectedNote;
+  const canLoadMore = !!nextCursor || (!!activeGroup && groups.indexOf(activeGroup) < groups.length - 1);
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !canLoadMore) return;
+    const root = listScrollRef.current;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadMore();
+      },
+      { root: overviewOpen ? null : root, rootMargin: "240px", threshold: 0 }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [canLoadMore, loadMore, notes.length, overviewOpen]);
+
+  const getNoteCategory = (note: NoteSummary) =>
     note.attachments && note.attachments.length > 0 ? note.attachments[0] : "Inbox";
 
   const currentDraftKey = () => draftKey("note", editingNote?.id);
 
-  const filteredNotes = useMemo(() => {
-    return notes.filter((note) => {
-      const cat = getNoteCategory(note);
-      const matchesCategory = filterCategory === "all" || cat === filterCategory;
-      const q = search.trim().toLowerCase();
-      const plain = note.content.replace(/<[^>]+>/g, " ").toLowerCase();
-      const matchesSearch =
-        !q ||
-        (note.title || "").toLowerCase().includes(q) ||
-        plain.includes(q) ||
-        cat.toLowerCase().includes(q);
-
-      const day = (note.updatedAt || note.createdAt).slice(0, 10);
-      const matchesFrom = !dateFrom || day >= dateFrom;
-      const matchesTo = !dateTo || day <= dateTo;
-
-      return matchesCategory && matchesSearch && matchesFrom && matchesTo;
-    });
-  }, [notes, filterCategory, search, dateFrom, dateTo]);
-
   const notesByGroup = useMemo(() => {
-    const map = new Map<string, Note[]>();
-    for (const note of filteredNotes) {
+    const map = new Map<string, NoteSummary[]>();
+    for (const note of notes) {
       const cat = getNoteCategory(note);
       if (!map.has(cat)) map.set(cat, []);
       map.get(cat)!.push(note);
@@ -130,7 +258,7 @@ export default function NotesEditor() {
     return order
       .filter((cat) => map.has(cat))
       .map((category) => ({ category, notes: map.get(category)! }));
-  }, [filteredNotes]);
+  }, [notes]);
 
   const openCreate = () => {
     setEditingNote(null);
@@ -148,15 +276,43 @@ export default function NotesEditor() {
     setShowForm(true);
   };
 
-  const openEdit = (note: Note) => {
-    setEditingNote(note);
+  const loadFullNote = async (id: string) => {
+    const response = await fetch(`/api/notes/${id}`);
+    if (!response.ok) throw new Error();
+    return (await response.json()) as Note;
+  };
+
+  const selectNote = async (note: NoteSummary) => {
+    setSelectedNote({ ...note, content: undefined });
+    setLoadingSelected(true);
+    try {
+      const full = await loadFullNote(note.id);
+      setSelectedNote(full);
+    } catch {
+      toast.error("Failed to open note");
+      setSelectedNote(null);
+    } finally {
+      setLoadingSelected(false);
+    }
+  };
+
+  const openEdit = async (note: NoteSummary | Note) => {
     setPendingFiles([]);
-    const key = draftKey("note", note.id);
+    let full: Note = note as Note;
+    if (!full.content) {
+      try {
+        full = await loadFullNote(note.id);
+      } catch {
+        return toast.error("Failed to load note");
+      }
+    }
+    setEditingNote(full);
+    const key = draftKey("note", full.id);
     const existing = loadDraft<NoteDraft>(key);
     const base: NoteDraft = {
-      title: note.title || "",
-      content: note.content || "<p></p>",
-      category: getNoteCategory(note),
+      title: full.title || "",
+      content: full.content || "<p></p>",
+      category: getNoteCategory(full),
     };
     if (existing?.data && JSON.stringify(existing.data) !== JSON.stringify(base)) {
       setDraftBanner(existing.data);
@@ -240,7 +396,9 @@ export default function NotesEditor() {
         clearDraft(draftKey("note", editingNote?.id));
         clearDraft(draftKey("note", savedNote.id));
         closeForm();
-        fetchNotes(savedNote.id);
+        await resetAndLoad();
+        void invalidateNotes();
+        setSelectedNote(savedNote);
       } else {
         toast.error("Failed to save note");
       }
@@ -261,7 +419,8 @@ export default function NotesEditor() {
         toast.success("Note deleted");
         clearDraft(draftKey("note", id));
         if (selectedNote?.id === id) setSelectedNote(null);
-        fetchNotes();
+        setNotes((current) => current.filter((note) => note.id !== id));
+        void invalidateNotes();
       } else {
         toast.error("Failed to delete note");
       }
@@ -270,16 +429,7 @@ export default function NotesEditor() {
     }
   };
 
-  const getHtmlTextPreview = (html: string) => {
-    if (!html) return "Empty note";
-    const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = html;
-    const text = tempDiv.textContent || tempDiv.innerText || "";
-    return text.length > 100 ? text.slice(0, 100) + "…" : text || "Empty note";
-  };
-
   const hasFilters = filterCategory !== "all" || !!search || !!dateFrom || !!dateTo;
-  const overviewOpen = !!selectedNote;
 
   const toolbar = (
     <div className="space-y-4">
@@ -364,7 +514,8 @@ export default function NotesEditor() {
       {hasFilters && (
         <div className="flex items-center justify-between">
           <p className="text-[11px] text-muted-foreground">
-            {filteredNotes.length} note{filteredNotes.length === 1 ? "" : "s"} found
+            {notes.length} note{notes.length === 1 ? "" : "s"} loaded
+            {canLoadMore ? "+" : ""}
           </p>
           <button
             type="button"
@@ -385,33 +536,25 @@ export default function NotesEditor() {
 
   const notesList = (
     <>
-      {filteredNotes.length === 0 ? (
+      {loading ? (
+        <div className="app-card py-16 text-center text-muted-foreground border border-border/40">Loading notes...</div>
+      ) : notes.length === 0 ? (
         <div className="app-card py-16 text-center text-muted-foreground border border-border/40">
           <FileText className="mx-auto h-10 w-10 opacity-15 mb-3" />
-          <p className="text-sm font-semibold">
-            {notes.length === 0 ? "No notes yet" : "No notes match your filters"}
-          </p>
-          <p className="text-xs mt-1">
-            {notes.length === 0 ? "Create a note to get started" : "Try adjusting search or filters"}
-          </p>
+          <p className="text-sm font-semibold">{hasFilters ? "No notes match your filters" : "No notes yet"}</p>
+          <p className="text-xs mt-1">{hasFilters ? "Try adjusting search or filters" : "Create a note to get started"}</p>
         </div>
       ) : (
         <div className="space-y-8 pb-2">
           {notesByGroup.map(({ category, notes: groupNotes }) => (
             <section key={category} className="space-y-3">
               <div className="flex items-baseline justify-between gap-2 border-b border-border/40 pb-2">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-primary">
-                  {category}
-                </h3>
-                <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {groupNotes.length}
-                </span>
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-primary">{category}</h3>
+                <span className="text-[10px] text-muted-foreground tabular-nums">{groupNotes.length}</span>
               </div>
               <div
                 className={`grid gap-4 ${
-                  overviewOpen
-                    ? "grid-cols-1 sm:grid-cols-2"
-                    : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+                  overviewOpen ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
                 }`}
               >
                 {groupNotes.map((note) => {
@@ -419,7 +562,7 @@ export default function NotesEditor() {
                   return (
                     <div
                       key={note.id}
-                      onClick={() => setSelectedNote(note)}
+                      onClick={() => selectNote(note)}
                       className={`app-card p-4 cursor-pointer transition-all group border h-full min-w-0 ${
                         isActive
                           ? "border-primary/80 bg-primary/5 ring-1 ring-primary/20"
@@ -452,9 +595,7 @@ export default function NotesEditor() {
                           </button>
                         </div>
                       </div>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed mt-2 line-clamp-3">
-                        {getHtmlTextPreview(note.content)}
-                      </p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed mt-2 line-clamp-3">{note.preview}</p>
                       <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-border/20 text-[9px] text-muted-foreground">
                         <Calendar className="h-3 w-3" />
                         <span>
@@ -471,6 +612,8 @@ export default function NotesEditor() {
               </div>
             </section>
           ))}
+          <div ref={sentinelRef} className="h-8" />
+          {loadingMore && <p className="text-center text-xs text-muted-foreground py-2">Loading more…</p>}
         </div>
       )}
     </>
@@ -517,10 +660,13 @@ export default function NotesEditor() {
             </div>
           </div>
 
-          <div
-            className="note-preview text-foreground flex-1 min-h-0 overflow-y-auto slim-scrollbar"
-            dangerouslySetInnerHTML={{ __html: selectedNote.content || "<p>Empty note</p>" }}
-          />
+          <div className="note-preview text-foreground flex-1 min-h-0 overflow-y-auto slim-scrollbar">
+            {loadingSelected || !selectedNote.content ? (
+              <p className="text-sm text-muted-foreground">Loading note…</p>
+            ) : (
+              <div dangerouslySetInnerHTML={{ __html: selectedNote.content || "<p>Empty note</p>" }} />
+            )}
+          </div>
 
           <div className="mt-4 pt-4 border-t border-border/40 shrink-0">
             <FileAttachments ownerType="NOTE" ownerId={selectedNote.id} />
@@ -551,6 +697,7 @@ export default function NotesEditor() {
         }
       >
         <div
+          ref={listScrollRef}
           className={
             overviewOpen
               ? "min-w-0 space-y-4"

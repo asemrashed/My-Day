@@ -136,6 +136,8 @@ model Task {
   @@index([userId, goalId])
   @@index([userId, subGoalId])
   @@index([userId, legacyChecklistId])
+  @@index([userId, order])
+  @@index([userId, dueDate])
 }
 
 model TaskGroup {
@@ -161,6 +163,8 @@ model Event {
   createdAt  DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startAt])
 }
 
 model Transaction {
@@ -175,6 +179,8 @@ model Transaction {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
 }
 
 model Loan {
@@ -218,6 +224,8 @@ model Notification {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model Goal {
@@ -239,6 +247,7 @@ model Goal {
   subGoalTasks Task[] @relation("TaskSubGoal")
 
   @@index([userId, parentGoalId])
+  @@index([userId, createdAt])
 }
 
 // Generic cross-feature reference: e.g. a NOTE that references TRANSACTIONs / GOALs / TASKs
@@ -281,6 +290,8 @@ model Project {
   updatedAt  DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
 }
 
 model Note {
@@ -293,6 +304,8 @@ model Note {
   updatedAt   DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
 }
 
 // Files attached to notes or projects (binary stored in MongoDB for Vercel compatibility)

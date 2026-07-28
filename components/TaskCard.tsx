@@ -14,6 +14,7 @@ type Props = {
   task: TaskView;
   goals: GoalOption[];
   onRefresh: () => void;
+  onTaskUpdated?: (patch: Pick<TaskView, "id" | "status">) => void;
   compact?: boolean;
 };
 
@@ -23,8 +24,9 @@ function priorityClass(priority: string) {
   return "bg-primary/10 text-primary border-primary/20";
 }
 
-export default function TaskCard({ task, goals, onRefresh, compact = false }: Props) {
+export default function TaskCard({ task, goals, onRefresh, onTaskUpdated, compact = false }: Props) {
   const [isEditing, setIsEditing] = useState(false);
+  const [pending, setPending] = useState(false);
   const sortable = useSortable({ id: task.id, disabled: compact });
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
@@ -42,9 +44,22 @@ export default function TaskCard({ task, goals, onRefresh, compact = false }: Pr
     : null;
 
   const toggle = async () => {
-    const result = await toggleTaskStatus(task.id, task.status);
-    if (!result.success) return toast.error(result.error || "Failed to update task");
-    onRefresh();
+    if (pending) return;
+    const previous = task.status;
+    const nextStatus = previous === "DONE" ? "PENDING" : "DONE";
+    onTaskUpdated?.({ id: task.id, status: nextStatus });
+    setPending(true);
+    try {
+      const result = await toggleTaskStatus(task.id, previous);
+      if (!result.success) {
+        onTaskUpdated?.({ id: task.id, status: previous });
+        toast.error(result.error || "Failed to update task");
+        return;
+      }
+      if (result.task) onTaskUpdated?.(result.task);
+    } finally {
+      setPending(false);
+    }
   };
 
   const remove = async () => {
@@ -79,7 +94,8 @@ export default function TaskCard({ task, goals, onRefresh, compact = false }: Pr
             type="checkbox"
             checked={task.status === "DONE"}
             onChange={toggle}
-            className="h-5 w-5 rounded border-border accent-primary shrink-0 cursor-pointer"
+            disabled={pending}
+            className="h-5 w-5 rounded border-border accent-primary shrink-0 cursor-pointer disabled:opacity-50"
           />
           <div className="min-w-0 flex-1">
             <h4 className={`text-sm font-semibold truncate ${task.status === "DONE" ? "line-through text-muted-foreground" : ""}`}>

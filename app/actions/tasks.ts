@@ -116,11 +116,18 @@ export async function deleteTaskGroup(groupId: string) {
     const group = await prisma.taskGroup.findFirst({ where: { id: groupId, userId }, select: { id: true } });
     if (!group) return { error: "Task group not found" };
 
+    const linked = await prisma.task.findMany({
+      where: { userId, groupId },
+      select: { goalId: true, subGoalId: true },
+    });
+
     await prisma.$transaction([
       prisma.task.deleteMany({ where: { userId, groupId } }),
       prisma.taskGroup.delete({ where: { id: groupId } }),
     ]);
-    await recalculateGoalProgress(userId);
+    await recalculateGoalProgress(userId, {
+      seedGoalIds: linked.flatMap((task) => [task.goalId, task.subGoalId]),
+    });
     revalidatePath("/");
     revalidatePath("/tasks");
     revalidatePath("/goals");
@@ -156,11 +163,12 @@ export async function toggleTaskStatus(id: string, _currentStatus?: string) {
       });
     }
 
-    await recalculateGoalProgress(userId);
+    const goals = await recalculateGoalProgress(userId, {
+      seedGoalIds: [task.goalId, task.subGoalId],
+    });
+    // Dashboard RSC only — tasks/goals pages patch local state from the return value.
     revalidatePath("/");
-    revalidatePath("/tasks");
-    revalidatePath("/goals");
-    return { success: true };
+    return { success: true, task: { id: task.id, status: nextStatus }, goals };
   } catch (error: unknown) {
     return { error: errorMessage(error, "Failed to toggle task") };
   }
@@ -194,7 +202,9 @@ export async function updateTask(id: string, data: TaskInput & { status?: string
       include: taskInclude,
     });
 
-    await recalculateGoalProgress(userId);
+    await recalculateGoalProgress(userId, {
+      seedGoalIds: [task.goalId, task.subGoalId, links.goalId, links.subGoalId],
+    });
     revalidatePath("/");
     revalidatePath("/tasks");
     revalidatePath("/goals");
@@ -219,11 +229,13 @@ export async function deleteTask(id: string) {
       where: { id },
     });
 
-    await recalculateGoalProgress(userId);
+    const goals = await recalculateGoalProgress(userId, {
+      seedGoalIds: [task.goalId, task.subGoalId],
+    });
     revalidatePath("/");
     revalidatePath("/tasks");
     revalidatePath("/goals");
-    return { success: true };
+    return { success: true, goals };
   } catch (error: unknown) {
     return { error: errorMessage(error, "Failed to delete task") };
   }

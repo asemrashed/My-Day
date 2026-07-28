@@ -89,9 +89,22 @@ export async function createTaskRecord(userId: string, input: TaskInput) {
     },
     include: taskInclude,
   });
-  await recalculateGoalProgress(userId);
+  await recalculateGoalProgress(userId, { seedGoalIds: [links.goalId, links.subGoalId] });
   return task;
 }
+
+export type GoalProgressUpdate = {
+  id: string;
+  progress: number;
+  isCompleted: boolean;
+};
+
+export type RecalculateGoalProgressOptions = {
+  /** Goal IDs touched by a mutation; ancestors are included automatically. */
+  seedGoalIds?: Array<string | null | undefined>;
+  /** Recalculate every goal for the user (hierarchy moves / bulk deletes). */
+  all?: boolean;
+};
 
 function collectDescendants(goalId: string, children: Map<string, string[]>) {
   const ids = [goalId];
@@ -99,29 +112,98 @@ function collectDescendants(goalId: string, children: Map<string, string[]>) {
   return ids;
 }
 
-export async function recalculateGoalProgress(userId: string) {
+function collectAncestors(goalId: string, parentById: Map<string, string | null>) {
+  const ids: string[] = [];
+  let current: string | null | undefined = goalId;
+  const seen = new Set<string>();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    ids.push(current);
+    current = parentById.get(current) ?? null;
+  }
+  return ids;
+}
+
+/**
+ * Recalculates stored goal progress. Prefer seeding affected goal IDs so only
+ * that branch is rewritten (batched: 2 reads + 1 transaction of updates).
+ */
+export async function recalculateGoalProgress(
+  userId: string,
+  options: RecalculateGoalProgressOptions = {}
+): Promise<GoalProgressUpdate[]> {
+  const seeds = Array.from(
+    new Set((options.seedGoalIds || []).filter((id): id is string => Boolean(id)))
+  );
+  if (!options.all && seeds.length === 0) return [];
+
   const goals = await prisma.goal.findMany({
     where: { userId },
-    select: { id: true, parentGoalId: true },
+    select: { id: true, parentGoalId: true, progress: true, isCompleted: true },
   });
+  if (goals.length === 0) return [];
+
   const children = new Map<string, string[]>();
+  const parentById = new Map<string, string | null>();
   for (const goal of goals) {
+    parentById.set(goal.id, goal.parentGoalId);
     if (!goal.parentGoalId) continue;
     children.set(goal.parentGoalId, [...(children.get(goal.parentGoalId) || []), goal.id]);
   }
 
-  for (const goal of goals) {
-    const ids = collectDescendants(goal.id, children);
-    const tasks = await prisma.task.findMany({
-      where: { userId, OR: [{ goalId: { in: ids } }, { subGoalId: { in: ids } }] },
-      select: { id: true, status: true },
-    });
-    const unique = new Map(tasks.map((task) => [task.id, task]));
+  const affectedIds = new Set<string>();
+  if (options.all) {
+    for (const goal of goals) affectedIds.add(goal.id);
+  } else {
+    for (const seed of seeds) {
+      if (!parentById.has(seed)) continue;
+      for (const id of collectAncestors(seed, parentById)) affectedIds.add(id);
+    }
+  }
+  if (affectedIds.size === 0) return [];
+
+  const descendantIds = new Set<string>();
+  Array.from(affectedIds).forEach((goalId) => {
+    for (const id of collectDescendants(goalId, children)) descendantIds.add(id);
+  });
+  const scope = Array.from(descendantIds);
+
+  const tasks = await prisma.task.findMany({
+    where: { userId, OR: [{ goalId: { in: scope } }, { subGoalId: { in: scope } }] },
+    select: { id: true, status: true, goalId: true, subGoalId: true },
+  });
+
+  const results: GoalProgressUpdate[] = [];
+  const writes: GoalProgressUpdate[] = [];
+  Array.from(affectedIds).forEach((goalId) => {
+    const ids = new Set(collectDescendants(goalId, children));
+    const unique = new Map<string, { id: string; status: string }>();
+    for (const task of tasks) {
+      if ((task.goalId && ids.has(task.goalId)) || (task.subGoalId && ids.has(task.subGoalId))) {
+        unique.set(task.id, task);
+      }
+    }
     const completed = Array.from(unique.values()).filter((task) => task.status === "DONE").length;
     const progress = unique.size === 0 ? 0 : Math.round((completed / unique.size) * 100);
-    await prisma.goal.update({
-      where: { id: goal.id },
-      data: { progress, isCompleted: unique.size > 0 && completed === unique.size },
-    });
+    const isCompleted = unique.size > 0 && completed === unique.size;
+    const update = { id: goalId, progress, isCompleted };
+    results.push(update);
+    const previous = goals.find((goal) => goal.id === goalId);
+    if (!previous || previous.progress !== progress || previous.isCompleted !== isCompleted) {
+      writes.push(update);
+    }
+  });
+
+  if (writes.length > 0) {
+    await prisma.$transaction(
+      writes.map((update) =>
+        prisma.goal.update({
+          where: { id: update.id },
+          data: { progress: update.progress, isCompleted: update.isCompleted },
+        })
+      )
+    );
   }
+
+  return results;
 }

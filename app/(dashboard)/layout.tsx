@@ -35,39 +35,41 @@ export default async function DashboardLayout({
 
   const user = session.user;
   return (
-    <div className="app-shell">
-      {/* Client Sidebar */}
-      <div className="hidden md:block">
-        <Sidebar user={{ name: user.name, email: user.email, image: user.image }} />
-      </div>
+    <div className="h-screen overflow-hidden bg-background text-foreground">
+      <div className="app-shell">
+        {/* Client Sidebar */}
+        <div className="hidden md:block shrink-0">
+          <Sidebar user={{ name: user.name, email: user.email, image: user.image }} />
+        </div>
 
-      {/* Main Content Area */}
-      <div className="dashboard-main">
-        {/* Header Bar */}
-        <header className="app-header">
-          <div className="flex items-center gap-3">
-            {/* Mobile Header Logo */}
-            <div className="md:hidden h-8 w-8 rounded-lg flex items-center justify-center overflow-hidden bg-primary/10 shadow-lg shadow-primary/25">
-              <Image src={thryveLogo} alt="ThryveUp logo" className="h-full w-full object-cover" priority />
+        {/* Main Content Area */}
+        <div className="dashboard-main">
+          {/* Header Bar */}
+          <header className="app-header">
+            <div className="flex items-center gap-3">
+              {/* Mobile Header Logo */}
+              <div className="md:hidden h-8 w-8 rounded-lg flex items-center justify-center overflow-hidden bg-primary/10 shadow-lg shadow-primary/25">
+                <Image src={thryveLogo} alt="ThryveUp logo" className="h-full w-full object-cover" priority />
+              </div>
+              <h2 className="text-lg md:text-xl font-bold tracking-tight md:hidden">ThryveUp</h2>
+              <div className="hidden md:block">
+                <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Workspace</span>
+                <p className="text-sm text-muted-foreground font-medium">Personal productivity space</p>
+              </div>
             </div>
-            <h2 className="text-lg md:text-xl font-bold tracking-tight md:hidden">ThryveUp</h2>
-            <div className="hidden md:block">
-              <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Workspace</span>
-              <p className="text-sm text-muted-foreground font-medium">Personal productivity space</p>
+
+            <div className="flex items-center gap-3">
+              <HeaderDate />
+              <NotificationBell />
+              <MobileNav />
             </div>
-          </div>
+          </header>
 
-          <div className="flex items-center gap-3">
-            <HeaderDate />
-            <NotificationBell />
-            <MobileNav />
-          </div>
-        </header>
-
-        {/* Nested Dashboard Views */}
-        <main className="flex-grow min-h-0 flex flex-col p-4 md:p-8 overflow-y-auto max-w-7xl w-full mx-auto">
-          {children}
-        </main>
+          {/* Nested Dashboard Views */}
+          <main className="flex-grow min-h-0 flex flex-col p-4 md:p-8 overflow-y-auto w-full">
+            {children}
+          </main>
+        </div>
       </div>
 
       <QuickAddModal />

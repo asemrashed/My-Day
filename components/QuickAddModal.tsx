@@ -14,7 +14,7 @@ import { ACCOUNT_METHODS } from "@/lib/finance";
 import { Plus, X, CheckSquare, DollarSign, Target, FileText } from "lucide-react";
 import toast from "react-hot-toast";
 import TaskForm from "@/components/TaskForm";
-import type { GoalOption } from "@/lib/task-types";
+import { useGoalOptions, useInvalidateAppQueries } from "@/hooks/useAppQueries";
 
 const noteCategories = ["Inbox", "Personal", "Work", "Finance", "Dev", "Other"];
 
@@ -22,8 +22,8 @@ export default function QuickAddModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [activeModal, setActiveModal] = useState<"none" | "task" | "transaction" | "goal" | "note">("none");
   const [isPending, startTransition] = useTransition();
-
-  const [taskGoals, setTaskGoals] = useState<GoalOption[]>([]);
+  const { data: taskGoals = [] } = useGoalOptions();
+  const { invalidateGoals, invalidateNotes, invalidateTransactions, invalidateTasks } = useInvalidateAppQueries();
 
   // Transaction form states
   const [txType, setTxType] = useState("EXPENSE");
@@ -51,19 +51,6 @@ export default function QuickAddModal() {
       if (res.expense) setExpenseCategories(res.expense);
       if (res.income) setIncomeCategories(res.income);
     });
-    fetch("/api/goals")
-      .then((response) => response.json())
-      .then((items) => {
-        if (!Array.isArray(items)) return;
-        setTaskGoals(
-          items
-            .filter((goal: GoalOption) => !goal.parentGoalId)
-            .map((goal: GoalOption) => ({
-              ...goal,
-              subGoals: items.filter((candidate: GoalOption) => candidate.parentGoalId === goal.id),
-            }))
-        );
-      });
   }, []);
 
   const handleCategoryAdded = (name: string, type: CategoryType) => {
@@ -103,6 +90,7 @@ export default function QuickAddModal() {
       const res = await createTransaction(formData);
       if (res.success) {
         toast.success(`${txType === "INCOME" ? "Income" : "Expense"} added successfully!`);
+        void invalidateTransactions();
         // Reset and close
         setTxAmount("");
         setTxAccount("CASH");
@@ -143,6 +131,7 @@ export default function QuickAddModal() {
 
         if (res.ok) {
           toast.success("Goal created successfully!");
+          void invalidateGoals();
           setGoalTitle("");
           setGoalPeriod("MONTHLY");
           setGoalDueDate("");
@@ -183,6 +172,7 @@ export default function QuickAddModal() {
 
         if (res.ok) {
           toast.success("Note created successfully!");
+          void invalidateNotes();
           setNoteTitle("");
           setNoteContent("");
           setNoteCategory("Inbox");
@@ -281,6 +271,7 @@ export default function QuickAddModal() {
                   goals={taskGoals}
                   onSuccess={() => {
                     window.dispatchEvent(new Event("tasks:changed"));
+                    void invalidateTasks();
                     setActiveModal("none");
                     setIsOpen(false);
                   }}

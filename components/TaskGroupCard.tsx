@@ -13,9 +13,10 @@ type Props = {
   tasks: TaskView[];
   goals: GoalOption[];
   onRefresh: () => void;
+  onTaskUpdated?: (patch: Pick<TaskView, "id" | "status">) => void;
 };
 
-export default function TaskGroupCard({ group, tasks, goals, onRefresh }: Props) {
+export default function TaskGroupCard({ group, tasks, goals, onRefresh, onTaskUpdated }: Props) {
   const [title, setTitle] = useState("");
   const [isExpanded, setIsExpanded] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
@@ -107,7 +108,7 @@ export default function TaskGroupCard({ group, tasks, goals, onRefresh }: Props)
 
       {isExpanded && <div className="space-y-2">
         {tasks.map((task) => (
-          <TaskCard key={task.id} task={task} goals={goals} onRefresh={onRefresh} compact />
+          <TaskCard key={task.id} task={task} goals={goals} onRefresh={onRefresh} onTaskUpdated={onTaskUpdated} compact />
         ))}
         <form onSubmit={addItem} className="flex items-center gap-2 border border-dashed border-border rounded-xl px-3 py-2">
           <Plus className="h-4 w-4 text-muted-foreground" />

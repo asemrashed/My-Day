@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Filter, ListTodo, Plus } from "lucide-react";
@@ -10,6 +11,8 @@ import FormModal from "@/components/FormModal";
 import TaskCard from "@/components/TaskCard";
 import TaskForm from "@/components/TaskForm";
 import TaskGroupCard from "@/components/TaskGroupCard";
+import { useInvalidateAppQueries, useTasksBoard } from "@/hooks/useAppQueries";
+import { queryKeys, type TasksBoardData } from "@/lib/queries";
 import type { GoalOption, TaskGroupSummary, TaskView } from "@/lib/task-types";
 
 type Props = {
@@ -19,8 +22,11 @@ type Props = {
 };
 
 export default function TaskBoard({ initialTasks, initialGroups, goals }: Props) {
-  const [tasks, setTasks] = useState(initialTasks);
-  const [groups, setGroups] = useState(initialGroups);
+  const queryClient = useQueryClient();
+  const { invalidateTasks } = useInvalidateAppQueries();
+  const { data, refetch } = useTasksBoard({ tasks: initialTasks, groups: initialGroups });
+  const tasks = data?.tasks ?? initialTasks;
+  const groups = data?.groups ?? initialGroups;
   const [view, setView] = useState<"all" | "groups" | "singular">("all");
   const [priority, setPriority] = useState("all");
   const [status, setStatus] = useState("all");
@@ -31,17 +37,24 @@ export default function TaskBoard({ initialTasks, initialGroups, goals }: Props)
   );
 
   const refresh = useCallback(async () => {
-    const response = await fetch("/api/tasks");
-    if (!response.ok) {
-      toast.error("Failed to refresh tasks");
-      return;
-    }
-    const data = await response.json();
-    setTasks(data.tasks || []);
-    setGroups(data.groups || []);
-  }, []);
+    const result = await refetch();
+    if (result.error) toast.error("Failed to refresh tasks");
+    void invalidateTasks();
+  }, [refetch, invalidateTasks]);
 
-  useEffect(() => setTasks(initialTasks), [initialTasks]);
+  const patchTask = useCallback(
+    (patch: Pick<TaskView, "id" | "status">) => {
+      queryClient.setQueryData<TasksBoardData>(queryKeys.tasks.board, (current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          tasks: current.tasks.map((task) => (task.id === patch.id ? { ...task, status: patch.status } : task)),
+        };
+      });
+    },
+    [queryClient]
+  );
+
   useEffect(() => {
     window.addEventListener("tasks:changed", refresh);
     return () => window.removeEventListener("tasks:changed", refresh);
@@ -61,7 +74,9 @@ export default function TaskBoard({ initialTasks, initialGroups, goals }: Props)
     const newIndex = tasks.findIndex((task) => task.id === event.over?.id);
     if (oldIndex < 0 || newIndex < 0) return;
     const reordered = arrayMove(tasks, oldIndex, newIndex);
-    setTasks(reordered);
+    queryClient.setQueryData<TasksBoardData>(queryKeys.tasks.board, (current) =>
+      current ? { ...current, tasks: reordered } : { tasks: reordered, groups }
+    );
     reorderTasks(reordered.map((task) => task.id)).then((result) => {
       if (!result.success) {
         toast.error("Failed to save task order");
@@ -126,6 +141,7 @@ export default function TaskBoard({ initialTasks, initialGroups, goals }: Props)
                 tasks={filtered.filter((task) => task.groupId === group.id)}
                 goals={goals}
                 onRefresh={refresh}
+                onTaskUpdated={patchTask}
               />
             ))}
 
@@ -134,7 +150,7 @@ export default function TaskBoard({ initialTasks, initialGroups, goals }: Props)
               <SortableContext items={singularTasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
                 <div className="space-y-3">
                   {singularTasks.map((task) => (
-                    <TaskCard key={task.id} task={task} goals={goals} onRefresh={refresh} />
+                    <TaskCard key={task.id} task={task} goals={goals} onRefresh={refresh} onTaskUpdated={patchTask} />
                   ))}
                 </div>
               </SortableContext>

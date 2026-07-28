@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
 import { Toaster } from "react-hot-toast";
 import ThemeSync from "@/components/ThemeSync";
+import QueryProvider from "@/components/QueryProvider";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -49,20 +50,22 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className={`${outfit.variable} font-sans antialiased h-full bg-background text-foreground`}>
-        <ThemeSync />
-        {children}
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: "hsl(var(--card))",
-              color: "hsl(var(--card-foreground))",
-              border: "1px solid hsl(var(--border))",
-              borderRadius: "12px",
-            },
-          }}
-        />
+        <QueryProvider>
+          <ThemeSync />
+          {children}
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: "hsl(var(--card))",
+                color: "hsl(var(--card-foreground))",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: "12px",
+              },
+            }}
+          />
+        </QueryProvider>
       </body>
     </html>
   );

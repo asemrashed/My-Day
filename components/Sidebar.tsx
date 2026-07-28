@@ -35,12 +35,7 @@ export default function Sidebar({ user }: SidebarProps) {
 
   useEffect(() => {
     localStorage.setItem("sidebar-collapsed", String(collapsed));
-    document.documentElement.classList.toggle("sidebar-collapsed", collapsed);
   }, [collapsed]);
-
-  useEffect(() => {
-    return () => document.documentElement.classList.remove("sidebar-collapsed");
-  }, []);
 
   const navItems = [
     { label: "Dashboard", href: "/", icon: Home },
@@ -55,7 +50,7 @@ export default function Sidebar({ user }: SidebarProps) {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-30 bg-card border-r border-border p-4 text-muted-foreground transition-all duration-200 flex flex-col ${
+      className={`sticky top-0 z-30 h-screen shrink-0 bg-card border-r border-border p-4 text-muted-foreground transition-all duration-200 flex flex-col ${
         collapsed ? "w-20" : "w-64"
       }`}
     >

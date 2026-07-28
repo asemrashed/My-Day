@@ -1,30 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { Target, ArrowRight } from "lucide-react";
-
-type Goal = {
-  id: string;
-  title: string;
-  period: string;
-  progress: number;
-  isCompleted: boolean;
-};
+import { useGoalsPreview } from "@/hooks/useAppQueries";
 
 export default function GoalsWidget() {
-  const [goals, setGoals] = useState<Goal[]>([]);
-
-  useEffect(() => {
-    fetch("/api/goals")
-      .then((r) => r.json())
-      .then((data) => {
-        setGoals(Array.isArray(data) ? data : []);
-      })
-      .catch(() => setGoals([]));
-  }, []);
-
-  const preview = goals.slice(0, 3);
+  const { data: goals = [] } = useGoalsPreview(3);
 
   const periodLabelMap: Record<string, string> = {
     DAILY: "Daily",
@@ -46,33 +27,26 @@ export default function GoalsWidget() {
           <h4 className="font-bold text-sm text-foreground">Active Goals</h4>
         </div>
 
-        {preview.length === 0 ? (
+        {goals.length === 0 ? (
           <div className="text-xs text-muted-foreground py-6 text-left">
             No goals tracked yet. Map your targets and track your checklist progress!
           </div>
         ) : (
           <div className="space-y-4">
-            {preview.map((g) => (
+            {goals.map((g) => (
               <div key={g.id} className="flex flex-col gap-1.5 text-left">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-bold text-foreground truncate max-w-[70%]">
-                    {g.title}
-                  </span>
+                  <span className="text-xs font-bold text-foreground truncate max-w-[70%]">{g.title}</span>
                   <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground shrink-0">
                     {periodLabelMap[g.period] || g.period}
                   </span>
                 </div>
-                
+
                 <div className="flex items-center gap-3">
                   <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden border border-border">
-                    <div
-                      className="h-full bg-primary rounded-full transition-all duration-300"
-                      style={{ width: `${g.progress}%` }}
-                    />
+                    <div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: `${g.progress}%` }} />
                   </div>
-                  <span className="text-[10px] font-bold text-muted-foreground w-8 text-right shrink-0">
-                    {g.progress}%
-                  </span>
+                  <span className="text-[10px] font-bold text-muted-foreground w-8 text-right shrink-0">{g.progress}%</span>
                 </div>
               </div>
             ))}

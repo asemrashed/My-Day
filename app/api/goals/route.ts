@@ -2,34 +2,128 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { recalculateGoalProgress, serializeTask, taskInclude } from "@/lib/task-service";
+import { clampLimit, decodeCursor, encodeCursor } from "@/lib/pagination";
 
 async function userId() {
   const session = await auth();
   return session?.user?.id || null;
 }
 
-export async function GET() {
+function serializeGoal(
+  goal: {
+    id: string;
+    title: string;
+    description: string | null;
+    period: string;
+    dueDate: Date | null;
+    progress: number;
+    isCompleted: boolean;
+    createdAt: Date;
+    parentGoalId: string | null;
+  },
+  extras: { tasks?: unknown[]; subGoals?: unknown[] } = {}
+) {
+  return {
+    id: goal.id,
+    title: goal.title,
+    description: goal.description,
+    period: goal.period,
+    dueDate: goal.dueDate?.toISOString() || null,
+    progress: goal.progress,
+    isCompleted: goal.isCompleted,
+    createdAt: goal.createdAt.toISOString(),
+    parentGoalId: goal.parentGoalId,
+    tasks: extras.tasks ?? [],
+    subGoals: extras.subGoals,
+  };
+}
+
+export async function GET(request: Request) {
   const id = await userId();
-  if (!id) return NextResponse.json([], { status: 401 });
-  await recalculateGoalProgress(id);
-  const [goals, tasks] = await Promise.all([
-    prisma.goal.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" } }),
-    prisma.task.findMany({
-      where: { userId: id, OR: [{ goalId: { not: null } }, { subGoalId: { not: null } }] },
-      orderBy: { order: "asc" },
-      include: taskInclude,
-    }),
-  ]);
-  return NextResponse.json(
-    goals.map((goal) => ({
-      ...goal,
-      dueDate: goal.dueDate?.toISOString() || null,
-      createdAt: goal.createdAt.toISOString(),
-      tasks: tasks
-        .filter((task) => (goal.parentGoalId ? task.subGoalId === goal.id : task.goalId === goal.id && !task.subGoalId))
-        .map(serializeTask),
-    }))
-  );
+  if (!id) return NextResponse.json({ goals: [], nextCursor: null }, { status: 401 });
+
+  const { searchParams } = new URL(request.url);
+  const mode = searchParams.get("mode") || "list";
+
+  // Slim list for pickers / task forms — no tasks, no pagination.
+  if (mode === "options") {
+    const goals = await prisma.goal.findMany({
+      where: { userId: id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        period: true,
+        parentGoalId: true,
+        dueDate: true,
+        progress: true,
+        isCompleted: true,
+      },
+    });
+    return NextResponse.json({
+      goals: goals.map((goal) => ({
+        ...goal,
+        dueDate: goal.dueDate?.toISOString() || null,
+      })),
+    });
+  }
+
+  const limit = clampLimit(searchParams.get("limit"), 6, 30);
+  const cursor = searchParams.get("cursor");
+
+  // Fetch user goals once, then treat missing/null parentGoalId as roots in JS.
+  // (Mongo `parentGoalId: null` OR `isSet: false` was unreliable and broke cursor pages.)
+  const allGoals = await prisma.goal.findMany({
+    where: { userId: id },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      period: true,
+      dueDate: true,
+      progress: true,
+      isCompleted: true,
+      createdAt: true,
+      parentGoalId: true,
+    },
+  });
+
+  const roots = allGoals.filter((goal) => !goal.parentGoalId);
+  const decoded = cursor ? decodeCursor(cursor) : null;
+  let start = 0;
+  if (decoded) {
+    const idx = roots.findIndex((goal) => goal.id === decoded.id);
+    start = idx >= 0 ? idx + 1 : 0;
+  }
+
+  const page = roots.slice(start, start + limit);
+  const hasMore = start + limit < roots.length;
+  const last = page[page.length - 1];
+  const nextCursor = hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
+
+  const rootIds = page.map((goal) => goal.id);
+  const subGoals = allGoals
+    .filter((goal) => goal.parentGoalId && rootIds.includes(goal.parentGoalId))
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  const subsByParent = new Map<string, typeof subGoals>();
+  for (const sub of subGoals) {
+    if (!sub.parentGoalId) continue;
+    const list = subsByParent.get(sub.parentGoalId) || [];
+    list.push(sub);
+    subsByParent.set(sub.parentGoalId, list);
+  }
+
+  return NextResponse.json({
+    goals: page.map((goal) =>
+      serializeGoal(goal, {
+        tasks: [],
+        subGoals: (subsByParent.get(goal.id) || []).map((sub) => serializeGoal(sub, { tasks: [] })),
+      })
+    ),
+    nextCursor,
+  });
 }
 
 export async function POST(request: Request) {
@@ -53,7 +147,7 @@ export async function POST(request: Request) {
       parentGoalId,
     },
   });
-  return NextResponse.json(goal);
+  return NextResponse.json(serializeGoal(goal, { tasks: [], subGoals: parentGoalId ? undefined : [] }));
 }
 
 export async function PUT(request: Request) {
@@ -96,8 +190,8 @@ export async function PUT(request: Request) {
       });
     }
   }
-  await recalculateGoalProgress(id);
-  return NextResponse.json(goal);
+  await recalculateGoalProgress(id, { all: true });
+  return NextResponse.json(serializeGoal(goal));
 }
 
 export async function DELETE(request: Request) {
@@ -121,6 +215,6 @@ export async function DELETE(request: Request) {
     prisma.goal.updateMany({ where: { userId: id, parentGoalId: goalId }, data: { parentGoalId: null } }),
     prisma.goal.delete({ where: { id: goalId } }),
   ]);
-  await recalculateGoalProgress(id);
+  await recalculateGoalProgress(id, { all: true });
   return NextResponse.json({ success: true });
 }
